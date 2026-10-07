@@ -8,15 +8,17 @@ from pathlib import Path
 
 if __package__:
     from .events import connect_events
+    from .methods import method_signature
 else:
     from events import connect_events
+    from methods import method_signature
 
 PAPERS = {'Letter': 1, 'Tabloid': 3, 'A4': 9, 'A3': 8}
 
 
 def print_drawing(source, output, control_id, paper, landscape):
     from PySide6.QtAxContainer import QAxWidget
-    from PySide6.QtCore import QTimer, QObject, SIGNAL
+    from PySide6.QtCore import QTimer, QObject, SIGNAL, qInstallMessageHandler
     from PySide6.QtWidgets import QApplication
     from pypdf import PdfReader
 
@@ -34,11 +36,7 @@ def print_drawing(source, output, control_id, paper, landscape):
         app.quit()
 
     def invoke(name, arguments):
-        meta = viewer.metaObject()
-        signatures = [bytes(meta.method(i).methodSignature()).decode() for i in range(meta.methodCount())]
-        signature = next((signature for signature in signatures if signature.startswith(name + '(')), None)
-        if signature is None:
-            raise RuntimeError(f'Installed eDrawings control does not expose {name}.')
+        signature = method_signature(viewer, name)
         result = viewer.dynamicCall(signature, arguments)
         if state['error']:
             raise RuntimeError(state['error'])
@@ -86,6 +84,15 @@ def print_drawing(source, output, control_id, paper, landscape):
 
     if not viewer.setControl(control_id):
         raise RuntimeError('Cannot host the registered eDrawings ActiveX control. Check installation and Python/eDrawings bitness.')
+    def qt_message(kind, context, message):
+        # dynamicCall has the same None result for void success and failure.
+        # Preserve Qt's COM invocation diagnostics instead of treating None as success.
+        print(message, file=sys.stderr, flush=True)
+        if 'QAxBase' in message and ('No such' in message or 'does not support automation' in message
+                                    or 'initialization failed' in message):
+            fail('eDrawings automation call failed: ' + message)
+
+    previous_message_handler = qInstallMessageHandler(qt_message)
     try:
         subscriptions = connect_events(viewer, {
             'OnFinishedLoadingDocument': loaded,
@@ -115,6 +122,7 @@ def print_drawing(source, output, control_id, paper, landscape):
         return {'success': True, 'sheets': state['sheets'], 'printer': 'Microsoft Print to PDF',
                 'paper': paper, 'orientation': 'Landscape' if landscape else 'Portrait', 'scale': 'Fit to page'}
     finally:
+        qInstallMessageHandler(previous_message_handler)
         viewer.clear()
         viewer.close()
 
