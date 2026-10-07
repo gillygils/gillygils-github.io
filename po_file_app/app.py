@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +32,7 @@ st.warning('Review every extracted part number and quantity against the PO befor
 key = (upload.getvalue(), root)
 if st.session_state.get('search_key') != key:
     st.session_state.pop('matches', None)
+    st.session_state.pop('completed_job', None)
 if st.button('Search source folder', type='primary'):
     try:
         with st.spinner('Searching the network folder. Large shares may take a while…'):
@@ -102,6 +104,31 @@ if st.button('Create PO folder and process files', disabled=not ack):
             (job / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         except Exception as exc:
             st.error(f'Could not save report: {exc}. Download it below.')
-    st.write(f'Output folder: {job}')
-    st.dataframe(results, use_container_width=True)
-    st.download_button('Download processing report', json.dumps(report, indent=2), file_name=f'PO-{number}-report.json', mime='application/json')
+    archive = None
+    try:
+        archive = shutil.make_archive(str(job), 'zip', root_dir=job.parent, base_dir=job.name)
+    except Exception as exc:
+        st.error(f'Files were saved, but ZIP creation failed: {exc}')
+    st.session_state.completed_job = {
+        'folder': str(job), 'archive': archive, 'report': report,
+    }
+
+if 'completed_job' in st.session_state:
+    completed = st.session_state.completed_job
+    st.subheader('Download collected files')
+    st.write(f'Output folder: {completed["folder"]}')
+    report = completed['report']
+    st.dataframe(report['results'], use_container_width=True)
+    if any(result['status'] != 'Copied' for result in report['results']):
+        st.warning('Some files were missing, skipped, or failed. The ZIP contains the collected files; check the report for incomplete items.')
+    if completed['archive']:
+        try:
+            with open(completed['archive'], 'rb') as archive_file:
+                st.download_button(
+                    'Download PO files ZIP', archive_file,
+                    file_name=Path(completed['archive']).name,
+                    mime='application/zip', on_click='ignore', type='primary',
+                )
+        except OSError as exc:
+            st.error(f'Cannot read ZIP: {exc}. The copied files remain in the output folder.')
+    st.download_button('Download processing report', json.dumps(report, indent=2), file_name=f'PO-{report["po"]}-report.json', mime='application/json', on_click='ignore')
