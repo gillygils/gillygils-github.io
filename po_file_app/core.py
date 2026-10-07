@@ -126,3 +126,59 @@ def copy_new(source, destination):
         raise
     shutil.copystat(source, destination)
     return destination
+
+
+def add_converted_exports(completed, uploads):
+    """Add manually converted files and atomically replace the downloadable ZIP."""
+    import json
+    import os
+    import tempfile
+    job = Path(completed['folder'])
+    report = json.loads(json.dumps(completed['report']))
+    parts = {item['part'].upper() for item in report['items']}
+    prepared = []
+    names = set()
+    existing = {p.name.casefold() for p in job.iterdir()}
+    for upload in uploads:
+        name = upload.name
+        if '/' in name or '\\' in name or name in {'.', '..'}:
+            raise ValueError('Export filenames must not contain directory paths.')
+        path = Path(name)
+        if path.suffix.lower() not in {'.step', '.stp', '.pdf'}:
+            raise ValueError(f'{name}: only STEP and PDF exports can be added.')
+        match = re.match(r'^([A-Z]\d{5}(?:_\d+)?)(?:$|[ -])', path.stem, re.I)
+        if not match or match[1].upper() not in parts:
+            raise ValueError(f'{name}: filename must start with an exact part number from this PO, such as C15999.step.')
+        if name.casefold() in names or name.casefold() in existing:
+            raise ValueError(f'{name}: already exists. Existing files are never overwritten; remove it from the upload selection.')
+        data = upload.getvalue()
+        if path.suffix.lower() == '.pdf':
+            valid = data.lstrip().startswith(b'%PDF-')
+        else:
+            valid = data.lstrip().startswith(b'ISO-10303-21;') and b'END-ISO-10303-21;' in data
+        if not valid:
+            raise ValueError(f'{name}: does not have a recognized {path.suffix} file header. Renaming a native file does not convert it.')
+        prepared.append((name, data, match[1].upper()))
+        names.add(name.casefold())
+    if not prepared:
+        raise ValueError('Upload at least one converted STEP or PDF.')
+    previous_report = (job / 'report.json').read_bytes()
+    created = []
+    archive = Path(completed['archive']) if completed.get('archive') else job.with_suffix('.zip')
+    try:
+        for name, data, part in prepared:
+            destination = job / name
+            with destination.open('xb') as file:
+                created.append(destination)
+                file.write(data)
+            report['results'].append({'part': part, 'source': f'Manually converted export: {name}', 'copy': str(destination), 'status': 'Added export'})
+        (job / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        with tempfile.TemporaryDirectory(prefix='po-export-', dir=job.parent) as temp:
+            new_archive = shutil.make_archive(str(Path(temp) / 'package'), 'zip', root_dir=job)
+            os.replace(new_archive, archive)
+    except Exception:
+        for path in created:
+            path.unlink(missing_ok=True)
+        (job / 'report.json').write_bytes(previous_report)
+        raise
+    return {**completed, 'report': report, 'archive': str(archive)}

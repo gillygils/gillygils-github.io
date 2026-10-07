@@ -24,10 +24,13 @@ class AppTests(unittest.TestCase):
                 (group / name).write_bytes(data)
             output = Path(temp) / 'output'
             downloads = {}
+            exports = []
             upload = io.BytesIO(b'test-po-document')
             upload.getvalue = lambda: b'test-po-document'
 
             def uploader(*args, **kwargs):
+                if kwargs.get('accept_multiple_files'):
+                    return exports
                 return upload if st.session_state.get('upload_generation', 0) == 0 else None
 
             def download(label, data, file_name, **kwargs):
@@ -50,6 +53,19 @@ class AppTests(unittest.TestCase):
                     self.assertEqual(set(archive.namelist()), set(files) | {'purchase-order.pdf', 'report.json'})
                     for name, data in files.items():
                         self.assertEqual(archive.read(name), data)
+                for name, data in [('C13030.step', b'ISO-10303-21;\nEND-ISO-10303-21;'), ('C13030.pdf', b'%PDF-1.7\nexample')]:
+                    value = io.BytesIO(data)
+                    value.name = name
+                    exports.append(value)
+                app.run()
+                next(b for b in app.button if b.label == 'Add exports and update ZIP').click().run()
+                self.assertFalse(app.exception)
+                self.assertFalse(app.error)
+                saved = app.session_state['completed_job']
+                with ZipFile(saved['archive']) as archive:
+                    self.assertIn('C13030.step', archive.namelist())
+                    self.assertIn('C13030.pdf', archive.namelist())
+                self.assertEqual(sum(r['status'] == 'Added export' for r in saved['report']['results']), 2)
                 next(b for b in app.button if b.label == 'Download PO files ZIP').click().run()
                 self.assertFalse(app.exception)
                 self.assertEqual(app.session_state['upload_generation'], 1)

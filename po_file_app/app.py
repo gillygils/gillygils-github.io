@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from core import parse_po, find_files, validate_destination, copy_new
+from core import parse_po, find_files, validate_destination, copy_new, add_converted_exports
 
 def clear_po_after_download():
     st.session_state.last_download = st.session_state.completed_job
@@ -36,7 +36,7 @@ with st.sidebar:
     destination = st.text_input('Output parent folder', help='Choose a folder outside the source tree. Each run creates a new PO folder.')
     grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; C15732_001 searches IDT C15000. Turn off to search the entire source folder if your files use a different layout.')
     st.caption('Files on the source drive are copied. Existing output files are never overwritten.')
-    st.caption('SolidWorks conversion is skipped. Referenced dependencies are not bundled automatically.')
+    st.caption('Free guided conversion uses Convert3D for STEP and eDrawings with Microsoft Print to PDF for drawings. Referenced dependencies are not bundled automatically.')
 generation = st.session_state.get('upload_generation', 0)
 upload = st.file_uploader('Purchase order PDF', type=['pdf'], key=f'po_upload:{generation}')
 if upload is None:
@@ -149,11 +149,27 @@ if st.button('Create PO folder and process files', disabled=not ack):
 
 if 'completed_job' in st.session_state:
     completed = st.session_state.completed_job
+    st.subheader('Add STEP and PDF conversions (optional)')
+    st.write('The native files have been collected. Use the steps below to convert them, then add the exports before downloading your final ZIP.')
+    st.link_button('Open Convert3D for part → STEP', 'https://convert3d.org/convert')
+    st.markdown('1. On Convert3D, choose a copied `.sldprt` file from the output folder below and convert it to STEP. Download the result. Files you select there are sent to that service.\n2. Open each copied `.slddrw` in **eDrawings**, choose **Print → Microsoft Print to PDF**, and include all required sheets. Check the PDF for missing views or cut-off content.\n3. Name each export after its exact PO part number, such as `C15999.step` or `C15999.pdf` (keep suffixes such as `_001`). Upload the exports here and click **Add exports and update ZIP**.')
+    native_results = [r for r in completed['report']['results'] if r.get('copy') and Path(r['copy']).suffix.lower() in {'.sldprt', '.slddrw'}]
+    if native_results:
+        st.dataframe([{'Part': r['part'], 'File to convert': r['copy']} for r in native_results], hide_index=True, use_container_width=True)
+    exports = st.file_uploader('Converted STEP and drawing PDF files', type=['step', 'stp', 'pdf'], accept_multiple_files=True, key=f'exports:{generation}:{completed["folder"]}')
+    if st.button('Add exports and update ZIP', disabled=not exports):
+        try:
+            with st.spinner('Adding exports and rebuilding ZIP…'):
+                completed = add_converted_exports(completed, exports)
+                st.session_state.completed_job = completed
+            st.success('Exports added. Your ZIP and processing report are updated.')
+        except Exception as exc:
+            st.error(f'Could not add exports: {exc}')
     st.subheader('Download collected files')
     st.write(f'Output folder: {completed["folder"]}')
     report = completed['report']
     st.dataframe(report['results'], use_container_width=True)
-    if any(result['status'] != 'Copied' for result in report['results']):
+    if any(result['status'] not in {'Copied', 'Added export'} for result in report['results']):
         st.warning('Some files were missing, skipped, or failed. The ZIP contains the collected files; check the report for incomplete items.')
     if completed['archive']:
         try:
