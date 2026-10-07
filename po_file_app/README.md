@@ -37,3 +37,10 @@ Run core tests from this directory:
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+
+## Convert3D implementation findings
+
+Inspection of Convert3D's public JavaScript on October 7, 2026 found a local SolidWorks reader that accepts file buffers, reads the SLD archive, extracts embedded Parasolid B-rep or LocalBodies geometry, and returns STEP output bytes through a JavaScript STEP writer. This supports browser-local part conversion. The broader app also loads OpenCascade WebAssembly for other geometry operations; installing OpenCascade alone does not supply this custom SolidWorks reader.
+
+This was static code inspection, not a runtime network audit or an independent conversion of the supplied C15999 part. The [privacy policy](https://convert3d.org/about/privacy) says most website processing is local but some formats and API operations use servers. The [terms](https://convert3d.org/about/terms) identify proprietary technology and require permission to redistribute or modify their code. No Convert3D code is bundled in this app. An automatic local implementation would need a separately licensed reader or independently implemented and validated parser and STEP writer.
