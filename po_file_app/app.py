@@ -7,6 +7,25 @@ from pathlib import Path
 import streamlit as st
 from core import parse_po, find_files, validate_destination, copy_new
 
+def clear_po_after_download():
+    st.session_state.last_download = st.session_state.completed_job
+    st.session_state.upload_generation = st.session_state.get('upload_generation', 0) + 1
+    for state_key in list(st.session_state):
+        if state_key in {'matches', 'search_key', 'completed_job', 'review_ack'} or state_key.startswith('file_choice:'):
+            del st.session_state[state_key]
+
+
+def zip_download(completed, clear_po=False):
+    with open(completed['archive'], 'rb') as archive_file:
+        st.download_button(
+            'Download PO files ZIP' if clear_po else 'Download last ZIP again', archive_file,
+            file_name=f'PO {completed["report"]["po"]} Parts.zip',
+            mime='application/zip',
+            on_click=clear_po_after_download if clear_po else 'ignore',
+            type='primary',
+        )
+
+
 st.set_page_config(page_title='PO File Packager', page_icon='📁', layout='wide')
 st.title('PO File Packager')
 st.write('Upload a purchase order, review matching engineering files, then create a folder with copies and exports.')
@@ -18,8 +37,17 @@ with st.sidebar:
     grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; C15732_001 searches IDT C15000. Turn off to search the entire source folder if your files use a different layout.')
     st.caption('Files on the source drive are copied. Existing output files are never overwritten.')
     st.caption('SolidWorks conversion is skipped. Referenced dependencies are not bundled automatically.')
-upload = st.file_uploader('Purchase order PDF', type=['pdf'])
+generation = st.session_state.get('upload_generation', 0)
+upload = st.file_uploader('Purchase order PDF', type=['pdf'], key=f'po_upload:{generation}')
 if upload is None:
+    if 'last_download' in st.session_state:
+        previous = st.session_state.last_download
+        st.success(f'PO {previous["report"]["po"]} cleared after the download was requested. Ready for the next PO.')
+        st.caption(f'A local copy is saved at {previous["archive"]}. You can download it again if needed.')
+        try:
+            zip_download(previous)
+        except OSError as exc:
+            st.warning(f'The previous ZIP is no longer available: {exc}')
     st.info('Upload a text-based PO PDF to begin. Scanned documents need OCR before uploading.')
     st.stop()
 try:
@@ -57,7 +85,7 @@ for part, files in st.session_state.matches.items():
         for label, suffix in [('Part', '.sldprt'), ('Drawing', '.slddrw'), ('Assembly', '.sldasm'), ('PDF', '.pdf'), ('STEP', '.step'), ('STEP (.stp)', '.stp')]:
             options = [str(p) for p in files if p.suffix.lower() == suffix]
             if options:
-                option = st.selectbox(label, ['Skip'] + options, index=1 if len(options) == 1 else 0, key=f'{key[1]}-{part}-{suffix}')
+                option = st.selectbox(label, ['Skip'] + options, index=1 if len(options) == 1 else 0, key=f'file_choice:{generation}:{key[1]}:{part}:{suffix}')
                 if len(options) > 1:
                     st.warning(f'Multiple {label.lower()} matches: select the correct file or leave it skipped.')
                 if option != 'Skip':
@@ -66,7 +94,7 @@ for part, files in st.session_state.matches.items():
             missing.append(part)
             st.warning('No files selected for this part.')
         selected[part] = chosen
-ack = st.checkbox('I checked the PO lines and selected the correct files. Process selected files even if some lines have no files.')
+ack = st.checkbox('I checked the PO lines and selected the correct files. Process selected files even if some lines have no files.', key='review_ack')
 if st.button('Create PO folder and process files', disabled=not ack):
     if not destination.strip():
         st.error('Enter an output parent folder.')
@@ -76,7 +104,7 @@ if st.button('Create PO folder and process files', disabled=not ack):
         st.stop()
     try:
         output = validate_destination(root, destination)
-        job = output / f'PO {number} - {datetime.now():%Y%m%d-%H%M%S-%f}'
+        job = output / f'PO {number} Parts - {datetime.now():%Y%m%d-%H%M%S-%f}'
         job.mkdir(parents=True, exist_ok=False)
     except Exception as exc:
         st.error(str(exc))
@@ -129,12 +157,8 @@ if 'completed_job' in st.session_state:
         st.warning('Some files were missing, skipped, or failed. The ZIP contains the collected files; check the report for incomplete items.')
     if completed['archive']:
         try:
-            with open(completed['archive'], 'rb') as archive_file:
-                st.download_button(
-                    'Download PO files ZIP', archive_file,
-                    file_name=Path(completed['archive']).name,
-                    mime='application/zip', on_click='ignore', type='primary',
-                )
+            st.caption('Downloading the ZIP clears the current PO and search results. Your folder settings and saved files stay available.')
+            zip_download(completed, clear_po=True)
         except OSError as exc:
             st.error(f'Cannot read ZIP: {exc}. The copied files remain in the output folder.')
     st.download_button('Download processing report', json.dumps(report, indent=2), file_name=f'PO-{report["po"]}-report.json', mime='application/json', on_click='ignore')
