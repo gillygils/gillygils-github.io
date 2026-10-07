@@ -93,8 +93,7 @@ if st.button('Create PO folder and process files', disabled=not ack):
                     result = {'part': part, 'source': str(source), 'copy': '', 'status': ''}
                     results.append(result)
                     try:
-                        folder = job / part
-                        copied = copy_new(source, folder / source.name)
+                        copied = copy_new(source, job / source.name)
                         result['copy'] = str(copied)
                         result['status'] = 'Copied'
                         st.write(f'{part}: {result["status"]}')
@@ -113,7 +112,7 @@ if st.button('Create PO folder and process files', disabled=not ack):
             st.error(f'Could not save report: {exc}. Download it below.')
     archive = None
     try:
-        archive = shutil.make_archive(str(job), 'zip', root_dir=job.parent, base_dir=job.name)
+        archive = shutil.make_archive(str(job), 'zip', root_dir=job)
     except Exception as exc:
         st.error(f'Files were saved, but ZIP creation failed: {exc}')
     st.session_state.completed_job = {
