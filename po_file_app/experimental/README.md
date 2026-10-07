@@ -19,3 +19,16 @@ Remaining conversion prerequisites:
 5. Add conversion to the production app only after those checks pass on representative files.
 
 The production app continues to use the existing guided conversion workflow. This tool does not create a substitute mesh STEP, drawing PDF, or claim complete format support. More native-format samples and a reference STEP exported from the same C15999 configuration would help future validation; they do not themselves resolve the missing archive/geometry decoders.
+
+## STEP reference validation
+
+`step_reference.py` checks the output geometry independently using OpenCascade. Install its optional dependency separately:
+
+```powershell
+py -3 -m pip install "cadquery-ocp>=7.8,<8"
+py -3 experimental\step_reference.py "C:\Parts\reference.stp" --report "C:\PO Reader\reference.json"
+```
+
+To attempt joining disconnected surfaces and export a single validated solid, append `--repaired-step "C:\PO Reader\joined.step"`. Output files must not already exist. The tool reports imported topology, dimensions in millimetres, and whether sewing at 0.00001 mm produces one closed valid solid. Volume and area use adaptive integration rather than coarse defaults. It is limited to a single solid and refuses repaired export if that cannot be established. Review the geometry before production use; valid topology and agreeing dimensions do not prove the model matches the native SolidWorks design.
+
+The supplied reference STEP imported as separate shells that could be sewn into one closed valid solid. A re-export/re-import check preserved its dimensions and adaptively calculated volume. These checks establish a reference for testing future SolidWorks decoding, not completion of the native reader.
