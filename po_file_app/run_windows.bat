@@ -13,6 +13,8 @@ if not exist ".venv\Scripts\python.exe" (
 )
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 goto failed
+".venv\Scripts\python.exe" converter\setup.py
+if errorlevel 1 echo Local STEP converter setup failed. The app will still open for copying and manual conversion.
 ".venv\Scripts\python.exe" -m streamlit run app.py --server.address 127.0.0.1
 if errorlevel 1 goto failed
 exit /b 0

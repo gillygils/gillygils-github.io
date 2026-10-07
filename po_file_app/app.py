@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+from local_converter import converter_ready, convert_part
 from core import parse_po, find_files, validate_destination, copy_new, add_converted_exports
 
 def clear_po_after_download():
@@ -36,7 +37,11 @@ with st.sidebar:
     destination = st.text_input('Output parent folder', help='Choose a folder outside the source tree. Each run creates a new PO folder.')
     grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; C15732_001 searches IDT C15000. Turn off to search the entire source folder if your files use a different layout.')
     st.caption('Files on the source drive are copied. Existing output files are never overwritten.')
-    st.caption('Free guided conversion uses Convert3D for STEP and eDrawings with Microsoft Print to PDF for drawings. Referenced dependencies are not bundled automatically.')
+    ready = converter_ready()
+    auto_step = st.checkbox('Convert copied part files to STEP locally', value=ready, disabled=not ready, help='Uses the permitted local reader. Currently requires one valid solid per part; unsupported files are reported as failures.')
+    if not ready:
+        st.caption('Local conversion is not installed. Run the updated run_windows.bat to prepare it.')
+    st.caption('Parts can convert locally. Drawings still use eDrawings with Microsoft Print to PDF. Referenced dependencies are not bundled automatically.')
 generation = st.session_state.get('upload_generation', 0)
 upload = st.file_uploader('Purchase order PDF', type=['pdf'], key=f'po_upload:{generation}')
 if upload is None:
@@ -128,6 +133,27 @@ if st.button('Create PO folder and process files', disabled=not ack):
                     except Exception as exc:
                         result['status'] = f'Failed: {exc}'
                         st.error(f'{part}: {exc}')
+            if auto_step:
+                existing_names = {p.name.casefold() for p in job.iterdir()}
+                for entry in list(results):
+                    if entry['status'] != 'Copied' or Path(entry.get('copy', '')).suffix.lower() != '.sldprt':
+                        continue
+                    source = Path(entry['copy'])
+                    if any((source.stem + extension).casefold() in existing_names for extension in ('.step', '.stp')):
+                        st.write(f'{entry["part"]}: existing STEP was copied; conversion skipped.')
+                        continue
+                    target = job / (source.stem + '.step')
+                    conversion = {'part': entry['part'], 'source': str(source), 'copy': '', 'status': ''}
+                    results.append(conversion)
+                    try:
+                        st.write(f'{entry["part"]}: converting to STEP locally…')
+                        metrics = convert_part(source, target)
+                        conversion.update(copy=str(target), status='Converted STEP', validation=metrics)
+                        existing_names.add(target.name.casefold())
+                        st.write(f'{entry["part"]}: STEP created and solid geometry validated.')
+                    except Exception as exc:
+                        conversion['status'] = f'Conversion failed: {exc}'
+                        st.error(f'{entry["part"]}: {exc}')
             status.update(label='Processing finished — review the report', state='complete')
     except Exception as exc:
         results.append({'status': f'Job failed: {exc}'})
@@ -149,8 +175,8 @@ if st.button('Create PO folder and process files', disabled=not ack):
 
 if 'completed_job' in st.session_state:
     completed = st.session_state.completed_job
-    st.subheader('Add STEP and PDF conversions (optional)')
-    st.write('The native files have been collected. Use the steps below to convert them, then add the exports before downloading your final ZIP.')
+    st.subheader('Add drawing PDFs or other STEP exports (optional)')
+    st.write('The selected files and any successful local STEP conversions are collected. Drawings still need PDF printing in eDrawings. You can add these PDFs and any manually converted STEP files below.')
     st.link_button('Open Convert3D for part → STEP', 'https://convert3d.org/convert')
     st.markdown('1. On Convert3D, choose a copied `.sldprt` file from the output folder below and convert it to STEP. Download the result. Its public SolidWorks conversion code runs locally in the browser. Its privacy policy notes server processing for some other conversions.\n2. Open each copied `.slddrw` in **eDrawings**, choose **Print → Microsoft Print to PDF**, and include all required sheets. Check the PDF for missing views or cut-off content.\n3. Name each export after its exact PO part number, such as `C15999.step` or `C15999.pdf` (keep suffixes such as `_001`). Upload the exports here and click **Add exports and update ZIP**.')
     native_results = [r for r in completed['report']['results'] if r.get('copy') and Path(r['copy']).suffix.lower() in {'.sldprt', '.slddrw'}]
@@ -169,7 +195,7 @@ if 'completed_job' in st.session_state:
     st.write(f'Output folder: {completed["folder"]}')
     report = completed['report']
     st.dataframe(report['results'], use_container_width=True)
-    if any(result['status'] not in {'Copied', 'Added export'} for result in report['results']):
+    if any(result['status'] not in {'Copied', 'Added export', 'Converted STEP'} for result in report['results']):
         st.warning('Some files were missing, skipped, or failed. The ZIP contains the collected files; check the report for incomplete items.')
     if completed['archive']:
         try:

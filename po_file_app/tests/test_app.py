@@ -41,6 +41,9 @@ class AppTests(unittest.TestCase):
 
             with patch('streamlit.file_uploader', side_effect=uploader), patch('core.parse_po', return_value=('1530', [Item(1, '50', 'PC', 'C13030')])), patch('streamlit.download_button', side_effect=download):
                 app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
+                automatic = next(c for c in app.checkbox if c.label == 'Convert copied part files to STEP locally')
+                if not automatic.disabled:
+                    automatic.uncheck()
                 app.sidebar.text_input[0].set_value(str(root))
                 app.sidebar.text_input[1].set_value(str(output))
                 next(b for b in app.button if b.label == 'Search source folder').click().run()

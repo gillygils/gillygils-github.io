@@ -1,0 +1,40 @@
+{
+  "reader_module": "36000",
+  "files": [
+    {
+      "name": "6926-187bc212d04958b8.js",
+      "url": "https://convert3d.org/_next/static/chunks/6926-187bc212d04958b8.js",
+      "sha256": "697a6b19b0466032b5e20e99163509c368179e15f24d7b176d89ab15ba28d8f6"
+    },
+    {
+      "name": "2f0b94e8-06a25a117cf91545.js",
+      "url": "https://convert3d.org/_next/static/chunks/2f0b94e8-06a25a117cf91545.js",
+      "sha256": "ff5208dea629a067b65862dc55ddf6ca28b0e68faeceb7138eb51d8c9c696fb6"
+    },
+    {
+      "name": "layout-16a74ad111ecde5e.js",
+      "url": "https://convert3d.org/_next/static/chunks/app/layout-16a74ad111ecde5e.js",
+      "sha256": "b785ea09897a4034594be2fd62db9d93c97ee22d3addd1e6b484a0b8d1cfc4fa"
+    },
+    {
+      "name": "8835-ccea16617d836c45.js",
+      "url": "https://convert3d.org/_next/static/chunks/8835-ccea16617d836c45.js",
+      "sha256": "1a354264baba6b3355d2abaea1b9871fc9a6884c50e150b63a77bcb6cc14fbfa"
+    },
+    {
+      "name": "8347-e7352d607d3d30c6.js",
+      "url": "https://convert3d.org/_next/static/chunks/8347-e7352d607d3d30c6.js",
+      "sha256": "618ea818f902a76069284cb2f2951b6b14a2d716a7e856dee4d9822a6d95688e"
+    },
+    {
+      "name": "3794-bb864f36cbba9d89.js",
+      "url": "https://convert3d.org/_next/static/chunks/3794-bb864f36cbba9d89.js",
+      "sha256": "aee506584b35aed31b52b4c3a9c37022dc4748377b9b8ee19593625e7dc9e5dd"
+    },
+    {
+      "name": "bd904a5c-4ff922b428eead65.js",
+      "url": "https://convert3d.org/_next/static/chunks/bd904a5c-4ff922b428eead65.js",
+      "sha256": "0f914d9587a8ab805cf4f20237babe7cce5027d0a9c395d0bcf8b748068447ad"
+    }
+  ]
+}
