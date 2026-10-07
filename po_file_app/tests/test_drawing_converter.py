@@ -94,3 +94,35 @@ class DrawingTests(unittest.TestCase):
                 with ZipFile(result['archive']) as archive:
                     self.assertIn('C15999.pdf',archive.namelist())
                     self.assertIn('C15999.slddrw',archive.namelist())
+
+    def test_app_stops_repeating_failed_printing_and_keeps_originals(self):
+        from streamlit.testing.v1 import AppTest
+        from core import Item
+        from zipfile import ZipFile
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/'source';folder=root/'IDT C15000';folder.mkdir(parents=True)
+            source=folder/'C15999.slddrw';source.write_bytes(b'native')
+            (folder/'C15998.slddrw').write_bytes(b'native2')
+            calls=[]
+            upload=io.BytesIO(b'PO')
+            def uploader(*args,**kwargs):return [] if kwargs.get('accept_multiple_files') else upload
+            def worker(command,**kwargs):
+                calls.append(command)
+                raise subprocess.TimeoutExpired('worker',55)
+            with patch('streamlit.file_uploader',side_effect=uploader),patch('core.parse_po',return_value=('1530',[Item(1,'1','PC','C15999'),Item(2,'1','PC','C15998')])),patch('drawing_converter.backend.drawing_capability',return_value=('{control}','available')),patch('drawing_converter.backend.subprocess.run',side_effect=worker):
+                app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py')).run()
+                app.sidebar.text_input[0].set_value(str(root));app.sidebar.text_input[1].set_value(str(Path(temp)/'output'))
+                next(c for c in app.checkbox if c.label=='Automatically print drawings to PDF (experimental)').check()
+                next(b for b in app.button if b.label=='Search source folder').click().run()
+                next(c for c in app.checkbox if c.label.startswith('I checked')).check().run()
+                next(b for b in app.button if b.label=='Create PO folder and process files').click().run()
+                self.assertFalse(app.exception)
+                self.assertEqual(len(calls),1)
+                result=app.session_state['completed_job']
+                statuses=[r['status'] for r in result['report']['results']]
+                self.assertTrue(any(s.startswith('PDF printing failed') for s in statuses))
+                self.assertTrue(any(s.startswith('PDF printing skipped') for s in statuses))
+                with ZipFile(result['archive']) as archive:
+                    self.assertIn('C15999.slddrw',archive.namelist())
+                    self.assertIn('C15998.slddrw',archive.namelist())
+                    self.assertFalse(any(n.endswith('.pdf') for n in archive.namelist()))

@@ -28,6 +28,7 @@ def print_drawing(source, output, control_id, paper, landscape):
     viewer.setWindowTitle('PO File Packager — printing drawing PDF')
     state = {'error': None, 'sheets': None, 'printing_finished': False, 'pdf_ready': False, 'pdf_problem': None}
     started = time.monotonic()
+    print_started = None
     queue_name = 'PO-Packager-' + uuid.uuid4().hex
 
     def fail(message):
@@ -43,6 +44,7 @@ def print_drawing(source, output, control_id, paper, landscape):
         return result
 
     def loaded(*args):
+        nonlocal print_started
         if state['sheets'] is not None or state['error']:
             return
         try:
@@ -53,6 +55,7 @@ def print_drawing(source, output, control_id, paper, landscape):
             invoke('SetPageSetupOptions', [2 if landscape else 1, PAPERS[paper], 0, 0, 1, 7,
                                          'Microsoft Print to PDF', 0, 0, 0, 0])
             # Silent, regular quality, all sheets, scale-to-fit, explicit output path.
+            print_started = time.monotonic()
             invoke('Print5', [False, queue_name, False, False, True, 1, 1.0, 0, 0, True, 1, count, str(output)])
         except Exception as exc:
             fail(exc)
@@ -61,9 +64,12 @@ def print_drawing(source, output, control_id, paper, landscape):
         state['printing_finished'] = True
 
     def poll_pdf():
-        if time.monotonic() - started > 120:
+        if print_started is None and time.monotonic() - started > 15:
+            fail('eDrawings did not confirm drawing loading within 15 seconds. PDF automation stopped for this batch.')
+            return
+        if print_started is not None and time.monotonic() - print_started > 30:
             detail = f' Last output check: {state["pdf_problem"]}.' if state['pdf_problem'] else ''
-            fail('eDrawings/PDF printing exceeded 120 seconds.' + detail + ' Close any unexpected print dialog and use the manual PDF workflow.')
+            fail('eDrawings did not produce a validated PDF within 30 seconds of printing.' + detail)
             return
         if not state['printing_finished'] or not output.is_file():
             return

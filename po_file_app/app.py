@@ -167,6 +167,7 @@ if st.button('Create PO folder and process files', disabled=not ack):
                         conversion['status'] = f'Conversion failed: {exc}'
                         st.error(f'{entry["part"]}: {exc}')
             if auto_pdf:
+                pdf_failure = None
                 existing_names = {p.name.casefold() for p in job.iterdir()}
                 for entry in list(results):
                     if entry['status'] != 'Copied' or Path(entry.get('copy', '')).suffix.lower() != '.slddrw':
@@ -178,6 +179,9 @@ if st.button('Create PO folder and process files', disabled=not ack):
                     target = job / (source.stem + '.pdf')
                     printing = {'part': entry['part'], 'source': str(source), 'copy': '', 'status': ''}
                     results.append(printing)
+                    if pdf_failure:
+                        printing['status'] = 'PDF printing skipped: an earlier drawing failed; use the manual PDF workflow.'
+                        continue
                     try:
                         st.write(f'{entry["part"]}: printing all drawing sheets to PDF…')
                         metrics = convert_drawing(source, target, paper=pdf_paper, landscape=pdf_landscape)
@@ -185,7 +189,9 @@ if st.button('Create PO folder and process files', disabled=not ack):
                         existing_names.add(target.name.casefold())
                         st.write(f'{entry["part"]}: PDF created, {metrics["pages"]} pages verified.')
                     except Exception as exc:
+                        pdf_failure = str(exc)
                         printing['status'] = f'PDF printing failed: {exc}'
+                        st.warning('Automatic PDF printing stopped for this batch. Remaining drawings are copied; existing PDFs are kept. Use the manual print/upload workflow for missing PDFs.')
                         st.error(f'{entry["part"]}: {exc}')
             status.update(label='Processing finished — review the report', state='complete')
     except Exception as exc:

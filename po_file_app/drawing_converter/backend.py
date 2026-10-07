@@ -58,7 +58,7 @@ def convert_drawing(source, destination, paper='Tabloid', landscape=True):
         if not landscape:
             command.append('--portrait')
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=150)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=55)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError('eDrawings printing timed out. Check for a print dialog and try the manual PDF workflow.') from exc
         if result.returncode:
