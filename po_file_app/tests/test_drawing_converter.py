@@ -125,4 +125,6 @@ class DrawingTests(unittest.TestCase):
                 with ZipFile(result['archive']) as archive:
                     self.assertIn('C15999.slddrw',archive.namelist())
                     self.assertIn('C15998.slddrw',archive.namelist())
-                    self.assertFalse(any(n.endswith('.pdf') for n in archive.namelist()))
+                    self.assertNotIn('C15999.pdf',archive.namelist())
+                    self.assertNotIn('C15998.pdf',archive.namelist())
+                    self.assertIn('purchase-order.pdf',archive.namelist())
