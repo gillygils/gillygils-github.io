@@ -6,6 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 from local_converter import converter_ready, convert_part
+from drawing_converter.backend import drawing_capability, convert_drawing
 from core import parse_po, find_files, validate_destination, copy_new, add_converted_exports
 
 def clear_po_after_download():
@@ -41,7 +42,18 @@ with st.sidebar:
     auto_step = st.checkbox('Convert copied part files to STEP locally', value=ready, disabled=not ready, help='Uses the permitted local reader. Currently requires one valid solid per part; unsupported files are reported as failures.')
     if not ready:
         st.caption('Local conversion is not installed. Run the updated run_windows.bat to prepare it.')
-    st.caption('Parts can convert locally. Drawings still use eDrawings with Microsoft Print to PDF. Referenced dependencies are not bundled automatically.')
+    drawing_control, drawing_status = drawing_capability()
+    auto_pdf = st.checkbox('Automatically print drawings to PDF (experimental)', value=False, disabled=drawing_control is None,
+                           help='Uses your installed eDrawings and Microsoft Print to PDF. Requires a signed-in Windows desktop and a first-run test.')
+    pdf_paper = 'Tabloid'
+    pdf_landscape = True
+    if auto_pdf:
+        pdf_paper = st.selectbox('Drawing PDF paper size', ['Tabloid', 'Letter', 'A3', 'A4'])
+        pdf_landscape = st.checkbox('Landscape drawing PDFs', value=True)
+        st.caption('All sheets are printed, scaled to fit the selected paper. Review the first PDF for correct views, sheets and sizing.')
+    else:
+        st.caption(drawing_status)
+    st.caption('Parts can convert locally. Drawings can use eDrawings PDF printing. Referenced dependencies are not bundled automatically.')
 generation = st.session_state.get('upload_generation', 0)
 upload = st.file_uploader('Purchase order PDF', type=['pdf'], key=f'po_upload:{generation}')
 if upload is None:
@@ -154,6 +166,27 @@ if st.button('Create PO folder and process files', disabled=not ack):
                     except Exception as exc:
                         conversion['status'] = f'Conversion failed: {exc}'
                         st.error(f'{entry["part"]}: {exc}')
+            if auto_pdf:
+                existing_names = {p.name.casefold() for p in job.iterdir()}
+                for entry in list(results):
+                    if entry['status'] != 'Copied' or Path(entry.get('copy', '')).suffix.lower() != '.slddrw':
+                        continue
+                    source = Path(entry['source'])
+                    if (source.stem + '.pdf').casefold() in existing_names:
+                        st.write(f'{entry["part"]}: existing PDF was copied; printing skipped.')
+                        continue
+                    target = job / (source.stem + '.pdf')
+                    printing = {'part': entry['part'], 'source': str(source), 'copy': '', 'status': ''}
+                    results.append(printing)
+                    try:
+                        st.write(f'{entry["part"]}: printing all drawing sheets to PDF…')
+                        metrics = convert_drawing(source, target, paper=pdf_paper, landscape=pdf_landscape)
+                        printing.update(copy=str(target), status='Printed PDF', validation=metrics)
+                        existing_names.add(target.name.casefold())
+                        st.write(f'{entry["part"]}: PDF created, {metrics["pages"]} pages verified.')
+                    except Exception as exc:
+                        printing['status'] = f'PDF printing failed: {exc}'
+                        st.error(f'{entry["part"]}: {exc}')
             status.update(label='Processing finished — review the report', state='complete')
     except Exception as exc:
         results.append({'status': f'Job failed: {exc}'})
@@ -176,7 +209,7 @@ if st.button('Create PO folder and process files', disabled=not ack):
 if 'completed_job' in st.session_state:
     completed = st.session_state.completed_job
     st.subheader('Add drawing PDFs or other STEP exports (optional)')
-    st.write('The selected files and any successful local STEP conversions are collected. Drawings still need PDF printing in eDrawings. You can add these PDFs and any manually converted STEP files below.')
+    st.write('The selected files and any successful local STEP conversions are collected. Any failed or unprocessed drawings can still be printed manually in eDrawings. You can add these PDFs and any manually converted STEP files below.')
     st.link_button('Open Convert3D for part → STEP', 'https://convert3d.org/convert')
     st.markdown('1. On Convert3D, choose a copied `.sldprt` file from the output folder below and convert it to STEP. Download the result. Its public SolidWorks conversion code runs locally in the browser. Its privacy policy notes server processing for some other conversions.\n2. Open each copied `.slddrw` in **eDrawings**, choose **Print → Microsoft Print to PDF**, and include all required sheets. Check the PDF for missing views or cut-off content.\n3. Name each export after its exact PO part number, such as `C15999.step` or `C15999.pdf` (keep suffixes such as `_001`). Upload the exports here and click **Add exports and update ZIP**.')
     native_results = [r for r in completed['report']['results'] if r.get('copy') and Path(r['copy']).suffix.lower() in {'.sldprt', '.slddrw'}]
@@ -195,7 +228,7 @@ if 'completed_job' in st.session_state:
     st.write(f'Output folder: {completed["folder"]}')
     report = completed['report']
     st.dataframe(report['results'], use_container_width=True)
-    if any(result['status'] not in {'Copied', 'Added export', 'Converted STEP'} for result in report['results']):
+    if any(result['status'] not in {'Copied', 'Added export', 'Converted STEP', 'Printed PDF'} for result in report['results']):
         st.warning('Some files were missing, skipped, or failed. The ZIP contains the collected files; check the report for incomplete items.')
     if completed['archive']:
         try:
