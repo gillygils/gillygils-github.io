@@ -46,25 +46,61 @@ def parse_po(file):
 SUPPORTED = {'.sldprt', '.slddrw', '.sldasm', '.step', '.stp', '.pdf'}
 
 
-def find_files(root, parts):
+def idt_folder(part):
+    match = re.fullmatch(r'([A-Z])(\d{5})(?:_\d+)?', part.upper())
+    if not match:
+        raise ValueError(f'Cannot determine IDT folder for {part}')
+    return f'IDT {match[1]}{int(match[2]) // 1000 * 1000:05d}'
+
+
+def find_files(root, parts, grouped=False, progress=None):
+    import os
+    import stat
     root = Path(root)
     if not root.is_dir():
         raise ValueError('The source folder is unavailable. Check the drive mapping and access permissions.')
     matches = {p: [] for p in parts}
-    # One traversal for all PO lines. Never silently skip unreadable directories.
-    import os
-    def fail(error):
-        raise OSError(f'Cannot search {error.filename}: {error.strerror}')
-    for folder, dirs, names in os.walk(root, onerror=fail, followlinks=False):
-        dirs[:] = [d for d in dirs if not Path(folder, d).is_symlink()]
-        for name in names:
-            path = Path(folder, name)
-            if path.is_symlink() or path.suffix.lower() not in SUPPORTED:
-                continue
-            for part in matches:
-                # A descriptive name is accepted after a space or dash, not another part/configuration suffix.
-                if re.match(r'^' + re.escape(part) + r'(?:$|[ -])', path.stem, re.I):
-                    matches[part].append(path)
+    lookup = {p.upper(): p for p in matches}
+    if grouped:
+        folders = sorted({idt_folder(p) for p in parts})
+        scopes = [root if root.name.casefold() == name.casefold() else root / name for name in folders]
+    else:
+        scopes = [root]
+    scanned = 0
+    for index, scope in enumerate(scopes):
+        if progress:
+            progress(index, len(scopes), str(scope), scanned)
+        try:
+            mode = scope.stat().st_mode
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(mode):
+            raise ValueError(f'Expected a folder: {scope}')
+        if scope.is_symlink():
+            raise ValueError(f'Source folder cannot be a symbolic link: {scope}')
+        pending = [scope]
+        while pending:
+            folder = pending.pop()
+            try:
+                # DirEntry uses cached directory metadata, reducing network round trips.
+                with os.scandir(folder) as entries:
+                    for entry in entries:
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(Path(entry.path))
+                        elif entry.is_file(follow_symlinks=False):
+                            stem, suffix = os.path.splitext(entry.name)
+                            if suffix.lower() not in SUPPORTED:
+                                continue
+                            candidate = re.match(r'^([A-Z]\d{5}(?:_\d+)?)(?:$|[ -])', stem, re.I)
+                            if candidate and candidate[1].upper() in lookup:
+                                matches[lookup[candidate[1].upper()]].append(Path(entry.path))
+            except OSError as exc:
+                raise OSError(f'Cannot search {folder}: {exc}') from exc
+            scanned += 1
+            if progress:
+                progress(index, len(scopes), str(folder), scanned)
+    if progress:
+        progress(len(scopes), len(scopes), 'Search complete', scanned)
     return {p: sorted(paths, key=lambda x: str(x).lower()) for p, paths in matches.items()}
 
 

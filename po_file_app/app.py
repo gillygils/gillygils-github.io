@@ -15,6 +15,7 @@ with st.sidebar:
     st.header('Folders')
     root = st.text_input('Source folder', value='Z:\\', help='Use the exact folder containing your IDT folders. A UNC path also works.')
     destination = st.text_input('Output parent folder', help='Choose a folder outside the source tree. Each run creates a new PO folder.')
+    grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; C15732_001 searches IDT C15000. Turn off to search the entire source folder if your files use a different layout.')
     st.caption('Files on the source drive are copied. Existing output files are never overwritten.')
     st.caption('SolidWorks conversion is skipped. Referenced dependencies are not bundled automatically.')
 upload = st.file_uploader('Purchase order PDF', type=['pdf'])
@@ -29,19 +30,25 @@ except Exception as exc:
 st.subheader(f'PO {number} · {len(items)} line items')
 st.dataframe([{'Line': i.number, 'Part': i.part, 'Quantity': i.quantity, 'Unit': i.unit} for i in items], hide_index=True, use_container_width=True)
 st.warning('Review every extracted part number and quantity against the PO before processing. Suffixed parts such as C15732_001 are matched separately; they are not assumed to be configurations of C15732.')
-key = (upload.getvalue(), root)
+key = (upload.getvalue(), root, grouped)
 if st.session_state.get('search_key') != key:
     st.session_state.pop('matches', None)
     st.session_state.pop('completed_job', None)
 if st.button('Search source folder', type='primary'):
     try:
-        with st.spinner('Searching the network folder. Large shares may take a while…'):
-            st.session_state.matches = find_files(root, list(dict.fromkeys(i.part for i in items)))
+        meter = st.progress(0, text='Starting search…')
+        def update_progress(done, total, folder, scanned):
+            meter.progress(done / max(total, 1), text=f'{done}/{total} search folders complete · {scanned} directories checked · {folder}')
+        with st.spinner('Searching engineering folders…'):
+            st.session_state.matches = find_files(root, list(dict.fromkeys(i.part for i in items)), grouped=grouped, progress=update_progress)
             st.session_state.search_key = key
+        st.success('Search complete. Review part and drawing matches for every PO line.')
     except Exception as exc:
         st.error(str(exc))
 if 'matches' not in st.session_state:
     st.stop()
+if grouped:
+    st.caption('Fast search checked only the relevant IDT folders, including their subfolders. If a part is missing or your grouping differs, turn off the fast-search option and search again.')
 selected = {}
 missing = []
 for part, files in st.session_state.matches.items():

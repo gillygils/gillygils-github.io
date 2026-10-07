@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from core import parse_po, find_files, copy_new, validate_destination
+from core import parse_po, find_files, copy_new, validate_destination, idt_folder
 
 class CoreTests(unittest.TestCase):
     def test_po_layout_multi_page(self):
@@ -33,6 +33,33 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(len(result['C15732_001']), 1)
             self.assertEqual(len(result['C15732']), 1)
             self.assertEqual(result['C99999'], [])
+
+    def test_grouped_search_skips_unrelated_folders_and_reports_completion(self):
+        import os
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in ['IDT C13000/C13030.sldprt', 'IDT C13000/sub/C13039.slddrw', 'IDT C15000/C15732_001.sldprt', 'unrelated/C13030.sldprt']:
+                p = root / name; p.parent.mkdir(parents=True, exist_ok=True); p.touch()
+            progress = []
+            with patch('os.scandir', wraps=os.scandir) as scan:
+                matches = find_files(root, ['C13030', 'C13039', 'C15732_001', 'C99999'], grouped=True, progress=lambda *args: progress.append(args))
+            self.assertEqual(len(matches['C13030']), 1)
+            self.assertEqual(len(matches['C13039']), 1)
+            self.assertEqual(len(matches['C15732_001']), 1)
+            self.assertEqual(matches['C99999'], [])
+            visited = [Path(call.args[0]) for call in scan.call_args_list]
+            self.assertNotIn(root / 'unrelated', visited)
+            self.assertEqual(visited.count(root / 'IDT C13000'), 1)
+            self.assertEqual(progress[-1][:3], (3, 3, 'Search complete'))
+            self.assertEqual(idt_folder('C13030'), 'IDT C13000')
+            self.assertEqual(idt_folder('C15732_001'), 'IDT C15000')
+            self.assertEqual(idt_folder('A00001'), 'IDT A00000')
+
+    def test_grouped_search_direct_idt_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'IDT C13000'; root.mkdir()
+            (root / 'C13030.sldprt').touch()
+            self.assertEqual(len(find_files(root, ['C13030'], grouped=True)['C13030']), 1)
 
     def test_copy_content_and_no_overwrites(self):
         with tempfile.TemporaryDirectory() as temp:
