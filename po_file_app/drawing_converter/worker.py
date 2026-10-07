@@ -6,6 +6,11 @@ import time
 import uuid
 from pathlib import Path
 
+if __package__:
+    from .events import connect_events
+else:
+    from events import connect_events
+
 PAPERS = {'Letter': 1, 'Tabloid': 3, 'A4': 9, 'A3': 8}
 
 
@@ -40,6 +45,8 @@ def print_drawing(source, output, control_id, paper, landscape):
         return result
 
     def loaded(*args):
+        if state['sheets'] is not None or state['error']:
+            return
         try:
             count = viewer.property('SheetCount')
             if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
@@ -80,18 +87,12 @@ def print_drawing(source, output, control_id, paper, landscape):
     if not viewer.setControl(control_id):
         raise RuntimeError('Cannot host the registered eDrawings ActiveX control. Check installation and Python/eDrawings bitness.')
     try:
-        def connect_event(name, handler):
-            meta = viewer.metaObject()
-            signature = next((bytes(meta.method(i).methodSignature()).decode() for i in range(meta.methodCount())
-                              if bytes(meta.method(i).methodSignature()).decode().startswith(name + '(')), None)
-            if signature is None:
-                raise RuntimeError(f'Installed eDrawings control does not expose {name}.')
-            if not QObject.connect(viewer, SIGNAL(signature), handler):
-                raise RuntimeError(f'Cannot subscribe to eDrawings {name}.')
-        connect_event('OnFinishedLoadingDocument', loaded)
-        connect_event('OnFailedLoadingDocument', lambda *args: fail('eDrawings failed to load the drawing: ' + str(args)))
-        connect_event('OnFinishedPrintingDocument', finished)
-        connect_event('OnFailedPrintingDocument', lambda *args: fail('eDrawings failed to send the drawing to Microsoft Print to PDF.'))
+        subscriptions = connect_events(viewer, {
+            'OnFinishedLoadingDocument': loaded,
+            'OnFailedLoadingDocument': lambda *args: fail('eDrawings failed to load the drawing.'),
+            'OnFinishedPrintingDocument': finished,
+            'OnFailedPrintingDocument': lambda *args: fail('eDrawings failed to send the drawing to Microsoft Print to PDF.'),
+        }, lambda signature, handler: QObject.connect(viewer, SIGNAL(signature), handler))
         viewer.exception.connect(lambda code, source, description, help_text: fail(f'eDrawings COM error {code}: {description}'))
         timer = QTimer()
         timer.timeout.connect(poll_pdf)
