@@ -15,7 +15,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 goto failed
-".venv\Scripts\python.exe" -c "import streamlit, pypdf, OCP"
+".venv\Scripts\python.exe" -c "import streamlit, pypdf, OCP, ezdxf, reportlab"
 if errorlevel 1 goto failed
 echo Independent native STEP converter ready. No Convert3D components are required.
 ".venv\Scripts\python.exe" -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --browser.gatherUsageStats false

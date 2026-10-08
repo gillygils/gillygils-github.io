@@ -7,7 +7,7 @@ if not exist ".venv\Scripts\python.exe" (
   echo Offline startup requires an existing installation. Run run_windows.bat once while connected.
   goto failed
 )
-".venv\Scripts\python.exe" -c "import streamlit, pypdf, OCP"
+".venv\Scripts\python.exe" -c "import streamlit, pypdf, OCP, ezdxf, reportlab"
 if errorlevel 1 (
   echo Required app dependencies are missing. Run run_windows.bat once while connected.
   goto failed

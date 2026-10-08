@@ -1,50 +1,149 @@
-# Native drawing decoder research prototype
+# Experimental native drawing exports
 
-This is custom Python code for reading saved SolidWorks drawing data without
-SolidWorks, eDrawings, a print driver, Convert3D, or a network service. It is
-**not a finished SLD DRW-to-PDF converter** and is not wired into production PO
-packaging. Its output is visibly marked **INCOMPLETE — NOT FOR MANUFACTURING**.
+Custom Python code reads saved SolidWorks drawing commands and cached view
+geometry, then writes vector PDF and millimetre DXF. Optional DWG export uses
+the free GNU LibreDWG command-line tools locally. Neither path uses eDrawings,
+SolidWorks, Convert3D, a print driver, or a conversion service.
 
-Run from `po_file_app` using the app's Python environment:
+**This is still an incomplete decoder, not a production drawing converter.**
+PDF, DXF and DWG carry an `INCOMPLETE NATIVE DECODER - NOT FOR MANUFACTURING`
+notice and use `-EXPERIMENTAL` filenames. The app keeps these drafts separate
+from PO packages. Compare each export with the original drawing before use.
+
+## Use the app
+
+1. Update the app and run `run_windows.bat` once to install the new `reportlab`
+   and `ezdxf` libraries.
+2. Open **Drawing exports**. Upload a `.slddrw` file.
+3. Optionally upload its matching `.sldprt`, with the same filename stem. This
+   supplies exact native spline definitions when saved drawing points alone
+   do not contain the spline control points.
+4. Click **Create experimental drawing exports**, then download the ZIP or
+   each PDF/DXF individually. No PO, file-server search, or output folder is
+   needed. The browser chooses the download location.
+
+For DWG on 64-bit Windows, close the app and run `install_dwg_tools.bat` once,
+then restart. The installer downloads the official LibreDWG 0.14 Windows ZIP,
+checks its pinned SHA-256, and installs executables/DLLs into ignored
+`.dwg-tools/`. It includes the GPL license and upstream source link. It does
+not install a service or printer. PDF/DXF do not require these tools.
+Installation needs internet access; subsequent conversion does not. You may
+remain connected to Z: normally. Use `run_windows_offline.bat` after installing
+the updated dependencies.
+
+## Command line
+
+Run from `po_file_app`, using the app's Python environment:
 
 ```powershell
-.venv\Scripts\python.exe -m native_drawing "Z:\IDT C15000\C15999.SLDDRW" --output "C:\PO-Research\C15999"
+.venv\Scripts\python.exe -m native_drawing "Z:\IDT C15000\C15999.SLDDRW" --part "Z:\IDT C15000\C15999.SLDPRT" --output "C:\Drawing-Drafts\C15999"
 ```
 
-The output directory must be new. It receives `inspection.json` and
-`C15999-INCOMPLETE-draft.pdf`. All source files remain unchanged. The PDF uses
-recovered vectors and text records; it does not enlarge the stored preview PNG.
+The output directory must be new. It receives marked PDF/DXF files and
+`drawing-report.json`. Add `--dwg` for optional DWG. On other platforms, build
+GNU LibreDWG 0.14 and specify `--dwg-tools <programs-directory>`; the app can
+also find tools via `PO_DWG_TOOLS` or PATH. A local Century Gothic TrueType font
+can be supplied with `--font <font-path>`. Files are read without modifying
+their original contents. The legacy line-only `inspect()` research function
+remains available in `native_drawing.__main__`; the CLI now exports the scene.
 
-Implemented:
+## What is decoded
 
-- Independently inspect ZIP-shaped archive framing, including the observed
-  nibble-swapped names and nonstandard signatures. Validate entry sizes,
-  offsets, bounds, local/central agreement, deflate completion and CRCs.
-- Apply file, per-entry and total decompression limits. Reject encryption,
-  legacy compound storage and unsupported compression.
-- Recover the observed planar line records and Unicode text records, saved
-  origins, glyph advances, font names and candidate font sizes.
-- Render an incomplete vector draft with persistent visible limitations and
-  produce the recovered-data report for further decoder work.
+- Archive framing, ordinary and observed nibble-swapped filenames, bounded
+  decompression, local/central agreement, entry sizes and CRCs.
+- Sequential observed display commands for lines, circular arcs, vector
+  symbols, triangular arrows, compound fills, Unicode text, rotations, glyph
+  advances and supported font/style changes. Unsupported commands stop export.
+  Structure sizes are not mistaken for serialized byte lengths.
+- Observed single-sheet framing and physical sheet size, named cached views,
+  saved rigid transforms, MFC reused-view class references, camera basis,
+  declared edge/silhouette group counts, hidden edges and additional saved
+  display-state commands.
+- Analytic lines, circles and arcs after checking all cached points. Exact
+  cubic splines are resolved from the matching part by checking every saved
+  point against one unique native curve. Control points are not fitted from
+  drawing samples. Polynomial Bezier spans render those splines in PDF.
+- Spatial circles project to analytic ellipses in isometric views after
+  verifying their plane and radius against independent cached samples.
+  Three points alone are not accepted as proof of a circular curve. Other
+  unresolved curves retain their saved polyline samples and are reported.
+- If a spline cannot be resolved, the marked draft retains its sampled
+  polyline, with each unresolved curve and reason listed in the report.
 
-On the supplied C15999.SLDDRW, the custom reader recovered 36 CRC-verified archive
-entries, 230 candidate planar line records and 55 positioned text records.
-Archive reading, record recovery, and draft writing took approximately 0.03
-seconds on the cloud machine (excluding Python startup). This is a partial
-recovery timing, **not a benchmark for complete drawing conversion**.
+PDF uses local Windows `GOTHIC.TTF` and `GOTHICB.TTF` when available. Otherwise
+it substitutes Helvetica/Helvetica Bold and reports that substitution. Fonts
+are not bundled or downloaded. DXF/DWG reference `gothic.ttf`/`gothicb.ttf`;
+their viewer must have the fonts. Baseline and
+font sizing are observations from Century Gothic in the supplied drawing,
+not support for arbitrary fonts or text layouts.
 
-The draft was rendered and inspected against the saved preview: borders and
-many annotation lines are present, but the part outline and holes are missing,
-fonts/sizing do not match, and some dimensions and notes cannot yet be placed.
-It fails drawing fidelity acceptance and must not be used as a production PDF.
+## Validation and known limits
 
-Remaining work: decode the curved/display geometry and view transforms; identify
-sheet boundaries and ordering; interpret symbol runs, rotations, styles,
-fonts and sizes; validate annotation placement, every sheet and geometry against
-PDFs printed from the same source drawings. Record matching is a research
-hypothesis, not a sequential complete format parser. Unknown content is neither
-claimed to be decoded nor silently accepted as a successful production export.
+C15999.SLDDRW with its matching part now exports both saved views, all eight
+hole circles, curved outline, saved dimensions, vector symbols, arrows, fills
+and text. The 55 model curves (24 lines, 15 arcs, 8 circles and 8 cubic splines)
+match the supplied C15999.DXF to numerical precision. The eight spline
+commands use projected/trimmed native curves, not polylines. PDF is a single
+431.8 x 279.4 mm vector page. Customer CAD, PDFs and fonts are not published.
+Windows font discovery still needs a Windows check.
 
-A PDF printed from the supplied C15999 drawing and representative drawings
-(multiple sheets, rotated dimensions, section/detail views, tables and symbols)
-are needed to validate further work. Those files stay outside the public repo.
+C15997 and C15996 also export all three saved views, including isometric
+holes, hidden edges, symbols and bold annotations, on 558.8 x 431.8 mm pages.
+All 148/151 decoded model lines and circles respectively match the reference
+DXFs to numerical precision after accounting for their model-to-paper scale.
+The isometric holes export as 32/34 analytic ellipses. Another 29/32 small
+non-analytic curves retain sampled polylines rather than claiming exact
+splines. Each is listed in the report and causes an app warning. All three
+native PDFs preserve the same text characters as their printed references,
+excluding the added notice and whitespace. Rendered output was visually
+compared using private font subsets from the reference PDFs; these fonts are
+only validation inputs and are neither needed by the app nor published.
+
+CAD exports preserve the physical sheet and its saved view scale. These are
+drawing-sheet exports, not a new 1:1 manufacturing profile. For example the
+two crossbar drawings retain 1:2 views. Their supplied SolidWorks DXFs enlarge
+the sheet to model scale; the numerical comparison accounts for that factor.
+
+The generated C15999 DXF has 867 entities, including individually positioned
+text glyphs and the notice. The local R2000 DWG round-trip retains all 867
+entities, their geometry, glyphs, font definitions, line patterns and mm units,
+with a clean ezdxf audit. This used LibreDWG built on Linux; the Windows binary
+and an independent CAD viewer have not been tested here. Successful native
+PDF/DXF/DWG export took about 2.2 seconds on this cloud machine, excluding
+Python startup. This is a single-file result, not a general speed guarantee.
+C15997/C15996 DWG round-trips also retain all 1,533/1,596 generated entities
+respectively, including ellipse definitions, with clean audits.
+
+The DWG bridge adapts a temporary generated R2000 DXF for LibreDWG 0.14:
+it remaps typed handles for model space and omits optional object dictionaries
+and class definitions. These are exporter defaults, not source drawing data.
+The downloadable DXF remains intact. DWG is offered only if its recovered DXF
+passes an audit without repairs and matches every supported entity, font and
+line pattern. Failure leaves PDF/DXF available and is recorded in the report.
+
+Document metadata, layers, line weights and portions of view metadata remain
+opaque. Only the observed single-sheet layout is supported. Multiple sheets,
+other native archive/command versions, section/detail views, tables and other
+font families are not validated. A structurally accepted export does not prove
+that all source content has been interpreted. The three matched source/reference
+drawings improve coverage but do not validate arbitrary drawing layouts.
+Limits are 64 MiB per input, bounded archive
+expansion, command/point counts, and a 90-second app worker timeout. The app
+never treats these outputs as production PDFs or adds them automatically to
+the PO ZIP.
+
+Authored fixture tests cover framing and transforms, malformed commands,
+multiple-sheet rejection, exact spline matching, vector PDF size/notice,
+millimetre DXF, fills, DWG loss/change detection, download integrity,
+upload/output handling, failure cleanup, and independent Streamlit tab state.
+No private CAD or font assets are included in the tests.
+
+## GNU LibreDWG
+
+Upstream: https://www.gnu.org/software/libredwg/ and
+https://github.com/LibreDWG/libredwg/releases/tag/0.14 (source and binaries).
+LibreDWG is GPLv3-or-later; see [licenses/LibreDWG-COPYING](licenses/LibreDWG-COPYING).
+The optional installer obtains unmodified upstream binaries and runs them as
+separate local processes. This repository does not include those binaries or
+copy LibreDWG implementation code. The adapter and drawing decoder are our
+Python implementation.

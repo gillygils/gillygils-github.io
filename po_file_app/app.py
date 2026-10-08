@@ -266,9 +266,12 @@ def render_po():
 
 
 from standalone import render_standalone
+from drawings import render_drawings
 
-po_tab, part_tab = st.tabs(['Purchase orders', 'Part to STEP'])
+po_tab, part_tab, drawing_tab = st.tabs(['Purchase orders', 'Part to STEP', 'Drawing exports'])
 with po_tab:
     render_po()
 with part_tab:
     render_standalone(step_convert, ready, step_provider)
+with drawing_tab:
+    render_drawings()

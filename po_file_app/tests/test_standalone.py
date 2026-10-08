@@ -57,7 +57,7 @@ class StandaloneTests(unittest.TestCase):
             with patch('streamlit.file_uploader',side_effect=uploader), patch('core.find_files',side_effect=AssertionError('Searched network drive')):
                 app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=20).run()
                 self.assertFalse(app.exception)
-                self.assertEqual([tab.label for tab in app.tabs],['Purchase orders','Part to STEP'])
+                self.assertEqual([tab.label for tab in app.tabs],['Purchase orders','Part to STEP','Drawing exports'])
                 self.assertEqual(app.sidebar.text_input[1].value,'')
                 app.session_state['completed_job']={'sentinel':'unchanged PO'}
                 button=next(b for b in app.button if b.label=='Convert uploaded parts to STEP')

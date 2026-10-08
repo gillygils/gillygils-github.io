@@ -1,4 +1,4 @@
-"""Inspect a drawing and create an incomplete PDF for native decoder research."""
+"""Native experimental exports and the legacy display-inspection helper."""
 import argparse
 import hashlib
 import json
@@ -34,7 +34,7 @@ def inspect(source, output):
     return report
 
 
-def main():
+def inspect_main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source',type=Path)
     parser.add_argument('--output',type=Path,required=True)
@@ -45,4 +45,5 @@ def main():
 
 
 if __name__ == '__main__':
+    from .worker import main
     main()
