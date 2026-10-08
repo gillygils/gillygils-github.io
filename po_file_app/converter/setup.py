@@ -7,10 +7,12 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
 from urllib.request import urlopen
+from urllib.error import HTTPError
 
 APP = Path(__file__).resolve().parents[1]
 MANIFEST = Path(__file__).with_name('manifest.json')
@@ -68,7 +70,14 @@ def setup():
         if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == file['sha256']:
             continue
         print('Downloading converter component ' + file['name'], flush=True)
-        data = fetch(file['url'])
+        try:
+            data = fetch(file['url'])
+        except HTTPError as exc:
+            if exc.code == 404:
+                raise RuntimeError('The pinned converter download is no longer published: '
+                                   + file['name'] + '. Download the latest app from GitHub '
+                                   'and rerun run_windows.bat. Verified cached components are retained.') from exc
+            raise
         if hashlib.sha256(data).hexdigest() != file['sha256']:
             raise RuntimeError('Converter checksum mismatch: ' + file['name'])
         with tempfile.NamedTemporaryFile(dir=destination, delete=False) as temp:
@@ -82,4 +91,8 @@ def setup():
 
 
 if __name__ == '__main__':
-    setup()
+    try:
+        setup()
+    except Exception as exc:
+        print('Local STEP converter setup failed: ' + str(exc), file=sys.stderr, flush=True)
+        sys.exit(1)

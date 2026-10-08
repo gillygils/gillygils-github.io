@@ -24,11 +24,21 @@ async function convert(source, destination) {
   const modules = {};
   sandbox.webpackChunk_N_E = [];
   sandbox.webpackChunk_N_E.push = chunk => {Object.assign(modules,chunk[1]);return 0;};
+  sandbox.__readerModules = modules;
   const context = vm.createContext(sandbox);
   for (const file of manifest.files) {
     const bytes = fs.readFileSync(path.join(__dirname,'..','.converter','modules',file.name));
     if (crypto.createHash('sha256').update(bytes).digest('hex') !== file.sha256) throw Error('Converter checksum mismatch: '+file.name);
-    vm.runInContext(bytes.toString('utf8'),context,{filename:file.name,timeout:10000});
+    let source = bytes.toString('utf8');
+    if (file.format === 'worker-modules') {
+      // The current worker stores shared helpers in its own module table.
+      // Register those factories only; do not start its browser message loop.
+      const start = source.indexOf('c={39280:');
+      const end = source.indexOf('},u={};function f(e)', start);
+      if (start < 0 || end < 0) throw Error('Unsupported pinned worker module layout.');
+      source = 'Object.assign(__readerModules,' + source.slice(start + 2, end + 1) + ');';
+    }
+    vm.runInContext(source,context,{filename:file.name,timeout:10000});
   }
   const cache = {};
   function load(id) {
