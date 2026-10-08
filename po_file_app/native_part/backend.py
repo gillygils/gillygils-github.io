@@ -41,7 +41,9 @@ def convert_part_native(source, destination):
         except (ValueError, IndexError) as exc:
             raise RuntimeError('Independent converter returned an unexpected result.') from exc
         if (not isinstance(response, dict) or response.get('implementation') != 'independent-native'
-                or response.get('success') is not True or not response.get('single_valid_solid')
+                or response.get('success') is not True or response.get('all_solids_valid') is not True
+                or type(response.get('solid_count')) is not int or response['solid_count']<1
+                or response['solid_count']!=response.get('decoded_bodies')
                 or not output.is_file()):
             raise RuntimeError('Independent converter did not produce a validated STEP.')
         copy_new(output, destination)

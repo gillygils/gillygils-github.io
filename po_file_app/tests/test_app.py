@@ -29,6 +29,8 @@ class AppTests(unittest.TestCase):
             upload.getvalue = lambda: b'test-po-document'
 
             def uploader(*args, **kwargs):
+                if args and args[0]=='SolidWorks part files':
+                    return []
                 if kwargs.get('accept_multiple_files'):
                     return exports
                 return upload if st.session_state.get('upload_generation', 0) == 0 else None

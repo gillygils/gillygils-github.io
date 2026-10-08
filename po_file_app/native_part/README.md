@@ -13,6 +13,10 @@ layouts; they are not runtime dependencies or redistributed implementations.
 In the app, leave **STEP converter** set to **Independent native reader
 (experimental)** and enable **Convert copied part files to STEP locally**.
 STEP exports are added to the flat PO folder and ZIP. Originals are retained.
+To convert without a PO, open **Part to STEP**, upload parts and click
+**Convert uploaded parts to STEP**. Download individual STEP files or a flat
+ZIP containing successful conversions and their report. Folder settings are
+only needed for the PO workflow.
 The processing report identifies `implementation: independent-native`, the
 saved configuration, decoded counts and round-trip geometry measurements.
 
@@ -48,15 +52,30 @@ payload decoding and delta replay are not implemented. This version-specific
 rule only accepts an already-current full partition. It refuses unmatched
 marks and forward edits instead of using an earlier body.
 
-Supported curves are lines, circles, and non-rational non-periodic 3D B-splines.
-Supported surfaces are planes, cylinders, cones and linear extrusions. Trim
-loops, paired oriented edge uses, endpoints, shell coverage and a single closed
-valid solid are checked. Coordinates use the observed supported metre-to-mm
-scale. STEP reimport must preserve face count, positive volume and bounding
-dimensions before publication. No tessellated display-mesh substitute is used.
+Supported curves are lines, circles, non-rational non-periodic 3D B-splines,
+and supported analytic surface-intersection curves. The latter are computed
+from the two decoded surfaces; native chart points identify the branch and
+direction rather than becoming a polyline approximation. Closed intersection
+splines are made periodic without changing sampled geometry so trims crossing
+the parameter seam select the correct arc. Intersections requiring multiple
+kernel segments or an ambiguous branch are refused.
+
+Supported surfaces are planes, cylinders, cones and linear extrusions. A full
+cone apex trim is supported when its singular vertex matches the analytic
+apex and its circular boundary is coaxial with the correct radius. Other
+singular boundary forms remain unsupported. Embedded schema definitions and
+attribute-vector arrays are decoded within explicit layout and size bounds.
+
+One or more active solid bodies are preserved separately in one STEP compound;
+they are not fused. Each body must form one closed, valid solid. The saved body
+chain, trim loops, paired oriented edge uses, endpoints and complete topology
+coverage are checked. Coordinates use the observed supported metre-to-mm
+scale. STEP reimport must preserve body and face counts, each body's positive
+volume, total volume, surface area and bounding dimensions before publication.
+No tessellated display-mesh substitute is used.
 
 Unsupported schemas, unknown entities, spline surfaces, other geometry types,
-assemblies/transforms, multi-body parts, different unit scales, requested
+assemblies/transforms, sheet bodies, different unit scales, requested
 configuration selection and history states needing replay fail explicitly.
 Other SolidWorks versions and parts still need acceptance testing. A saved
 configuration match and valid solid alone cannot prove native-feature fidelity.
@@ -88,6 +107,33 @@ analytic calculation of the bar, two rounded corners, two chamfers, circular
 hole and oblong slot. No reference STEP was supplied for these two parts.
 The app packages their exact suffixed STEP filenames separately. CAD assets
 remain outside the repository; regression tests use authored cube archives.
+All eight additional supplied parts also pass independent conversion:
+
+| Part | Faces | Solid bodies retained |
+| --- | ---: | ---: |
+| C04592 | 16 | 1 |
+| C13029_001 | 42 | 1 |
+| C13038_001 | 36 | 1 |
+| C13065 | 21 | 1 |
+| C13071 | 15 | 1 |
+| C13228 | 17 | 1 |
+| C00128_002 | 33 | 2 |
+| C04045-001 | 50 | 1 |
+
+The tests reimport all exports as valid solids and compare body counts, face
+counts, volume, area and dimensions with reconstructed geometry. C04045-001
+uses its most-recent `Default<As Machined>` configuration. No reference STEP
+was supplied for these eight parts, so these checks establish structural and
+round-trip consistency, not independent proof of all native-feature fidelity.
+All 11 supplied parts pass; arbitrary SolidWorks files are not guaranteed.
+
+Authored regressions exercise a pointed cone with known analytic volume and
+area, perpendicular-cylinder intersections crossing a parameter seam, two
+disjoint cubes retained as separate solids, and failure without partial output
+when one body is unsupported. Standalone app tests convert uploads without a
+PO or network-drive search, preserve suffixes, report individual failures and
+hide stale downloads after inputs change.
+
 Synthetic tests author a 10 mm cube archive and exercise full binary decoding,
 geometry construction and STEP import without private CAD assets; expected
 volume is 1,000 mm³ and area is 600 mm². Failure tests cover malformed topology,

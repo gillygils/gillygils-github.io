@@ -10,26 +10,26 @@ class ShapeError(ValueError):
     pass
 
 
-def reconstruct(report):
-    from OCP.gp import gp_Pnt, gp_Dir, gp_Ax2, gp_Ax3
-    from OCP.Geom import (Geom_Line, Geom_Circle, Geom_BSplineCurve, Geom_Plane,
-                          Geom_CylindricalSurface, Geom_ConicalSurface, Geom_SurfaceOfLinearExtrusion)
+def reconstruct_body(report, body_id):
+    from OCP.gp import gp_Pnt, gp_Dir
     from OCP.GeomAPI import GeomAPI_ProjectPointOnCurve
-    from OCP.TColgp import TColgp_Array1OfPnt
-    from OCP.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
     from OCP.BRepBuilderAPI import (BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire,
                                     BRepBuilderAPI_MakeFace, BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeSolid)
     from OCP.ShapeFix import ShapeFix_Face, ShapeFix_Solid
     from OCP.TopoDS import TopoDS
-    from OCP.TopAbs import TopAbs_SHELL, TopAbs_FACE
+    from OCP.TopAbs import TopAbs_SHELL
     from OCP.TopExp import TopExp_Explorer
     from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.BRepCheck import BRepCheck_Shell, BRepCheck_NoError
     if not report['complete']:
         raise ShapeError('Entity decoding is incomplete.')
     nodes = {record['identity']:record for record in report['records']}
     if len(nodes) != len(report['records']):
         raise ShapeError('Duplicate entity identities.')
-    if any(n['fields'].get('sense',43) not in (43,45) for n in nodes.values()):
+    if any(n['fields'].get('sense',43) not in (43,45)
+           and not (n['type']==17 and n['fields'].get('sense')==63
+                    and not n['fields']['edge'] and not n['fields']['other'])
+           for n in nodes.values()):
         raise ShapeError('Unsupported orientation encoding.')
     def node(identity, expected=None):
         result = nodes.get(identity)
@@ -42,8 +42,6 @@ def reconstruct(report):
         return gp_Pnt(*(a*1000 for a in v))
     def direction(v):
         return gp_Dir(*v)
-    def axis(v, normal, x):
-        return gp_Ax3(point(v),direction(normal),direction(x))
     def chain(first, kind, link):
         result,seen = [],set()
         while first:
@@ -51,40 +49,18 @@ def reconstruct(report):
                 raise ShapeError('Unexpected cycle in a linear topology chain.')
             seen.add(first);result.append(first);first=f(first,kind)[link]
         return result
-    curves = {}
+    from .geometry import Geometry, GeometryError
+    geometry = Geometry(node)
     def curve(identity):
-        if identity in curves:
-            return curves[identity]
-        n=node(identity);p=n['fields'];t=n['type']
-        if t==30:
-            result=Geom_Line(point(p['pvec']),direction(p['direction']))
-        elif t==31:
-            result=Geom_Circle(gp_Ax2(point(p['centre']),direction(p['normal']),direction(p['x_axis'])),p['radius']*1000)
-        elif t==134:
-            data=f(p['nurbs'],136)
-            if data['periodic'] or data['rational'] or data['vertex_dim']!=3:
-                raise ShapeError('Periodic/rational or non-3D splines are not implemented.')
-            controls=node(data['bspline_vertices'],45)['variable']
-            knots=node(data['knots'],128)['variable'];multiplicities=node(data['knot_mult'],127)['variable']
-            count=data['n_vertices']
-            if len(controls)!=count*3 or len(knots)!=data['n_knots'] or len(knots)!=len(multiplicities):
-                raise ShapeError('Spline array sizes disagree.')
-            poles=TColgp_Array1OfPnt(1,count)
-            for i in range(count):poles.SetValue(i+1,point(controls[i*3:i*3+3]))
-            ka=TColStd_Array1OfReal(1,len(knots));ma=TColStd_Array1OfInteger(1,len(knots))
-            for i,(k,m) in enumerate(zip(knots,multiplicities),1):ka.SetValue(i,k);ma.SetValue(i,m)
-            result=Geom_BSplineCurve(poles,ka,ma,data['degree'],False)
-        else:
-            raise ShapeError(f'Unsupported curve type {t}.')
-        curves[identity]=result
-        return result
+        try:
+            return geometry.curve(identity)
+        except GeometryError as exc:
+            raise ShapeError(str(exc)) from exc
     def surface(identity):
-        n=node(identity);p=n['fields'];t=n['type']
-        if t==50:return Geom_Plane(axis(p['pvec'],p['normal'],p['x_axis']))
-        if t==51:return Geom_CylindricalSurface(axis(p['pvec'],p['axis'],p['x_axis']),p['radius']*1000)
-        if t==52:return Geom_ConicalSurface(axis(p['pvec'],p['axis'],p['x_axis']),math.atan2(p['sin_half_angle'],p['cos_half_angle']),p['radius']*1000)
-        if t==67:return Geom_SurfaceOfLinearExtrusion(curve(p['section']),direction(p['sweep']))
-        raise ShapeError(f'Unsupported surface type {t}.')
+        try:
+            return geometry.surface(identity)
+        except GeometryError as exc:
+            raise ShapeError(str(exc)) from exc
     used_vertices=set()
     used_fins=set()
     def vertex(identity):
@@ -145,12 +121,53 @@ def reconstruct(report):
             current=p['forward']
         if current!=first:raise ShapeError('Loop does not return to its first fin.')
         return maker.Wire()
-    bodies=[n for n in nodes.values() if n['type']==12]
-    if len(bodies)!=1:raise ShapeError('Exactly one decoded body is required.')
-    shell_ids=chain(bodies[0]['fields']['shell'],13,'next')
+    def singular(loop):
+        fin=f(loop,15)['fin'];data=f(fin,17)
+        return not data['edge'] and not data['other']
+    def cone_with_apex(surf,loops):
+        from OCP.Geom import Geom_ConicalSurface
+        from OCP.gp import gp_Vec
+        if not isinstance(surf,Geom_ConicalSurface) or len(loops)!=2:
+            raise ShapeError('Unsupported singular trim boundary.')
+        tips=[loop for loop in loops if singular(loop)]
+        regular=[loop for loop in loops if not singular(loop)]
+        if len(tips)!=1 or len(regular)!=1:
+            raise ShapeError('A full cone needs one circular boundary and one apex loop.')
+        tip_fin=f(tips[0],15)['fin'];tip=f(tip_fin,17)
+        if (tip['forward']!=tip_fin or tip['backward']!=tip_fin or tip['loop']!=tips[0]
+                or tip['sense']!=63 or tip['curve'] or not tip['vertex']):
+            raise ShapeError('Malformed singular cone loop.')
+        apex=vertex(tip['vertex'])
+        if apex.Distance(surf.Apex())>1e-5:
+            raise ShapeError('Singular vertex is not the analytic cone apex.')
+        if tip_fin in used_fins:raise ShapeError('Singular fin is shared between loops.')
+        used_fins.add(tip_fin)
+        boundary_fin=f(regular[0],15)['fin'];boundary=f(boundary_fin,17)
+        if boundary['forward']!=boundary_fin or boundary['backward']!=boundary_fin:
+            raise ShapeError('Singular cone boundary is not one full circle.')
+        circle=f(f(boundary['edge'],16)['curve'],31)
+        # Traverse the actual native circular edge so reference and coverage
+        # checks still apply. The kernel creates its matching singular seam.
+        wire(regular[0])
+        cone_axis=gp_Vec(surf.Position().Direction())
+        offset=gp_Vec(surf.Location(),point(circle['centre']))
+        if (offset.Crossed(cone_axis).Magnitude()>1e-5
+                or gp_Vec(direction(circle['normal'])).Crossed(cone_axis).Magnitude()>1e-10):
+            raise ShapeError('Cone boundary circle is not coaxial.')
+        angle=surf.SemiAngle();v=offset.Dot(cone_axis)/math.cos(angle)
+        if abs(abs(surf.RefRadius()+v*math.sin(angle))-circle['radius']*1000)>1e-5:
+            raise ShapeError('Cone boundary radius disagrees with the native circle.')
+        apex_v=-surf.RefRadius()/math.sin(angle)
+        maker=BRepBuilderAPI_MakeFace(surf,0,math.tau,min(v,apex_v),max(v,apex_v),1e-7)
+        if not maker.IsDone():raise ShapeError('Cannot build the analytic cone apex face.')
+        return maker
+    body=f(body_id,12)
+    shell_ids=chain(body['shell'],13,'next')
+    if any(f(shell,13)['body']!=body_id for shell in shell_ids):
+        raise ShapeError('Shell belongs to another body.')
     face_ids=[]
     for shell in shell_ids:face_ids+=chain(f(shell,13)['face'],14,'next')
-    if len(face_ids)!=len(set(face_ids)) or len(face_ids)!=sum(n['type']==14 for n in nodes.values()):
+    if not face_ids or len(face_ids)!=len(set(face_ids)):
         raise ShapeError('Body shell traversal does not cover every decoded face exactly once.')
     sewing=BRepBuilderAPI_Sewing(1e-5)
     for identity in face_ids:
@@ -158,21 +175,56 @@ def reconstruct(report):
         if not loops:raise ShapeError('Face has no boundary loops.')
         if any(f(loop,15)['face']!=identity for loop in loops):
             raise ShapeError('Boundary loop belongs to another face.')
-        surf=surface(p['surface']);maker=BRepBuilderAPI_MakeFace(surf,wire(loops[0]),True)
-        for loop in loops[1:]:maker.Add(wire(loop))
+        surf=surface(p['surface'])
+        if any(singular(loop) for loop in loops):
+            maker=cone_with_apex(surf,loops)
+        else:
+            maker=BRepBuilderAPI_MakeFace(surf,wire(loops[0]),True)
+            for loop in loops[1:]:maker.Add(wire(loop))
         if not maker.IsDone():raise ShapeError(f'Cannot build face {identity}.')
         fixer=ShapeFix_Face(maker.Face());fixer.SetPrecision(1e-6);fixer.SetMaxTolerance(1e-5);fixer.Perform()
         face=fixer.Face()
         if p['sense']==45:face=TopoDS.Face_s(face.Reversed())
         sewing.Add(face)
-    for kind,used in ((16,set(edges)),(17,used_fins),(18,used_vertices)):
-        if used!={n['identity'] for n in nodes.values() if n['type']==kind}:
-            raise ShapeError('Not all decoded topology belongs to the reconstructed body.')
     sewing.Perform();joined=sewing.SewedShape();explorer=TopExp_Explorer(joined,TopAbs_SHELL);shells=[]
     if joined.ShapeType()==TopAbs_SHELL:shells=[TopoDS.Shell_s(joined)]
     else:
         while explorer.More():shells.append(TopoDS.Shell_s(explorer.Current()));explorer.Next()
-    if len(shells)!=1 or not shells[0].Closed():raise ShapeError(f'Sewing did not produce one closed shell: {len(shells)} shells.')
+    if (len(shells)!=1 or sewing.NbFreeEdges() or sewing.NbMultipleEdges()
+            or BRepCheck_Shell(shells[0]).Closed()!=BRepCheck_NoError):
+        raise ShapeError(f'Sewing did not produce one closed shell: {len(shells)} shells, '
+                         f'{sewing.NbFreeEdges()} free edges, {sewing.NbMultipleEdges()} multiple edges.')
+    # Sewing can leave the cached Closed flag false for valid conical pole
+    # edges. Set it only after the shell's actual closure check succeeds.
+    shells[0].Closed(True)
     solid=BRepBuilderAPI_MakeSolid(shells[0]).Solid();fixer=ShapeFix_Solid(solid);fixer.Perform();solid=fixer.Solid()
-    if not BRepCheck_Analyzer(solid).IsValid():raise ShapeError('Reconstructed solid is invalid.')
-    return solid, {'decoded_faces':len(face_ids),'decoded_edges':len(edges),'base_partition_only':True}
+    if not BRepCheck_Analyzer(solid).IsValid():raise ShapeError(f'Reconstructed body {body_id} is invalid.')
+    return solid, {14:set(face_ids),16:set(edges),17:used_fins,18:used_vertices}
+
+
+def reconstruct(report):
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+    if not report['complete']:
+        raise ShapeError('Entity decoding is incomplete.')
+    body_ids=[r['identity'] for r in report['records'] if r['type']==12]
+    if not body_ids:
+        raise ShapeError('No saved solid bodies were decoded.')
+    solids=[]
+    covered={kind:set() for kind in (14,16,17,18)}
+    for body_id in body_ids:
+        solid,used=reconstruct_body(report,body_id)
+        solids.append(solid)
+        for kind,ids in used.items():
+            if covered[kind]&ids:
+                raise ShapeError('Topology is shared between different solid bodies.')
+            covered[kind].update(ids)
+    for kind,ids in covered.items():
+        if ids!={r['identity'] for r in report['records'] if r['type']==kind}:
+            raise ShapeError('Not all decoded topology belongs to the reconstructed bodies.')
+    shape=solids[0]
+    if len(solids)>1:
+        shape=TopoDS_Compound();builder=BRep_Builder();builder.MakeCompound(shape)
+        for solid in solids:builder.Add(shape,solid)
+    return shape, {'decoded_faces':len(covered[14]), 'decoded_edges':len(covered[16]),
+                   'decoded_bodies':len(solids), 'base_partition_only':True}

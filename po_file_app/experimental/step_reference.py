@@ -4,6 +4,7 @@ Requires the optional cadquery-ocp package. Does not read SolidWorks files.
 """
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -70,6 +71,23 @@ def analyze_step(path, repaired_step=None):
         BRepGProp.SurfaceProperties_s(solid, area, Eps=1e-9)
         report['solid_volume_mm3'] = volume.Mass()
         report['solid_surface_area_mm2'] = area.Mass()
+    volumes,areas,face_counts=[],[],[]
+    validities=[]
+    for item in solids:
+        props,area=GProp_GProps(),GProp_GProps()
+        BRepGProp.VolumeProperties_s(item,props,Eps=1e-9,OnlyClosed=True)
+        BRepGProp.SurfaceProperties_s(item,area,Eps=1e-9)
+        volumes.append(props.Mass())
+        areas.append(area.Mass())
+        face_counts.append(len(shapes(item,TopAbs_FACE)))
+        validities.append(BRepCheck_Analyzer(item).IsValid())
+    report['all_solids_valid']=bool(solids) and all(validities) and all(
+        math.isfinite(value) and value>0 for value in volumes+areas)
+    report['solid_volumes_mm3']=volumes
+    report['solid_face_counts']=face_counts
+    if report['all_solids_valid']:
+        report['total_solid_volume_mm3']=sum(volumes)
+        report['total_solid_surface_area_mm2']=sum(areas)
     if repaired_step is not None:
         target = Path(repaired_step)
         if target.exists():

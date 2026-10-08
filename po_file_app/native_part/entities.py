@@ -97,6 +97,10 @@ LAYOUTS.update({
     30: fields(GEOMETRIC+'pvec:v direction:v'),
     31: fields(GEOMETRIC+'centre:v normal:v x_axis:v radius:f'),
     32: fields(GEOMETRIC+'centre:v normal:v x_axis:v major_radius:f minor_radius:f'),
+    38: fields(GEOMETRIC) + [('surface','p',2)] + fields('chart:p start:p end:p'),
+    40: fields('base_parameter:f base_scale:f chart_count:d chordal_error:f angular_error:f')
+        + [('parameter_error','f',2)] + fields('hvec:h'),
+    41: fields('type:c hvec:h'),
     50: fields(GEOMETRIC+'pvec:v normal:v x_axis:v'),
     51: fields(GEOMETRIC+'pvec:v axis:v radius:f x_axis:v'),
     52: fields(GEOMETRIC+'pvec:v axis:v radius:f sin_half_angle:f cos_half_angle:f x_axis:v'),
@@ -108,6 +112,7 @@ LAYOUTS.update({
     80: fields('next:p identifier:p type_id:d') + [('actions','u',8)] + fields('field_names:p') + [('legal_owners','l',14)] + fields('fields:u'),
     81: fields('node_id:d definition:p owner:p next:p previous:p next_of_type:p previous_of_type:p fields:p'),
     82: fields('values:d'), 83: fields('values:f'), 84: fields('values:c'), 85: fields('values:v'),
+    86: fields('values:v'),
     100: fields('node_id:d owner:p next:p previous:p') + [('rotation','f',9)] + fields('translation:v scale:f flag:d perspective_vector:v'),
 })
 LAYOUTS.update({
@@ -122,16 +127,36 @@ LAYOUTS.update({
     122: fields('key:p real_array:p int_array:p'),
     121: fields('geom_type:d real_array:p int_array:p'),
     137: fields(GEOMETRIC+'surface:p b_curve:p original:p tolerance_to_original:f'),
+    204: fields('uv_type:u values:f'),
 })
-VARIABLE = {45,74,79,80,81,82,83,84,85,98,121,122,127,128}
+VARIABLE = {40,41,45,74,79,80,81,82,83,84,85,86,98,121,122,127,128,204}
 
 
-def read_schema(cursor, inherited):
+def read_schema(cursor, inherited, variable=False):
     declaration = cursor.unpack('B')
     if declaration == 255:
         return inherited
     if not 1 <= declaration <= 100:
         raise DecodeError('Unsupported entity schema declaration.')
+    if cursor.data[cursor.offset:cursor.offset+1] not in (b'C',b'D',b'I',b'A',b'Z'):
+        # A standalone embedded definition supplies a class name, description,
+        # typed fields and a final variable-array flag instead of patch actions.
+        # Accept it only when it exactly describes a layout we already know.
+        class_name,description=cursor.string(),cursor.string()
+        result=[]
+        for index in range(declaration):
+            name=cursor.string()
+            reference_type,count=cursor.unpack('h'),cursor.unpack('h')
+            kind=cursor.string().lower() if reference_type==0 else 'p'
+            if count==2 and variable and index==declaration-1:
+                count=1  # variable-length field marker, not a fixed two-item array
+            if not name or not 1<=count<=100 or kind not in 'uclnwdpfvbih' or len(kind)!=1:
+                raise DecodeError('Unsupported embedded schema field.')
+            result.append((name,kind,count))
+        flag=cursor.unpack('B')
+        if not class_name or not description or flag!=int(variable) or result!=inherited:
+            raise DecodeError('Embedded schema does not match the supported field layout.')
+        return result
     result, index = [], 0
     for _ in range(250):
         action = chr(cursor.unpack('B'))
@@ -184,7 +209,7 @@ def decode_prefix(data):
                 return report | {'stopped_reason':f'Unsupported entity type {node_type}.',
                                  'stopped_offset':start, 'unsupported_entity_type':node_type}
             if node_type not in schemas:
-                schemas[node_type] = read_schema(cursor,LAYOUTS[node_type])
+                schemas[node_type] = read_schema(cursor,LAYOUTS[node_type],node_type in VARIABLE)
             variable_count = cursor.unpack('i') if node_type in VARIABLE else 0
             if not 0 <= variable_count <= 100000:
                 raise DecodeError('Variable count outside limits.')

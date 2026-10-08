@@ -102,15 +102,25 @@ def load_model(source):
     if histories[0]['schema'] != base['schema']:
         raise UnsupportedPart(f'Base/history schema mismatch: {base["schema"]} / {histories[0]["schema"]}.')
     root = only_record(base, 101)
-    body = only_record(base, 12)
-    state = body['fields']
-    if (root['fields']['body'] != body['identity'] or state['owner'] != root['identity']
-            or root['fields']['alive'] != 1 or state['state'] != 1
-            or state['body_type'] != 1 or state['ref_instance'] != 0
-            or any(root['fields'].get(k,0) for k in ('assembly','transform','mesh','polyline','lattice'))
-            or any(state.get(k,0) for k in ('mesh','polyline','lattice','boundary_mesh','boundary_polyline','boundary_lattice'))
-            or not math.isclose(state['res_size'], 1000, abs_tol=1e-8, rel_tol=0)):
-        raise UnsupportedPart('Unsupported body ownership, body type or unit scale.')
+    if (root['fields']['alive'] != 1
+            or any(root['fields'].get(k,0) for k in ('assembly','transform','mesh','polyline','lattice'))):
+        raise UnsupportedPart('Unsupported partition state, assembly or transform.')
+    bodies={r['identity']:r for r in base['records'] if r['type']==12}
+    current,previous=root['fields']['body'],0
+    seen=set()
+    while current:
+        if current in seen or current not in bodies:
+            raise UnsupportedPart('Malformed saved body chain.')
+        seen.add(current)
+        state=bodies[current]['fields']
+        if (state['owner']!=root['identity'] or state['previous']!=previous
+                or state['state']!=1 or state['body_type']!=1 or state['ref_instance']!=0
+                or any(state.get(k,0) for k in ('mesh','polyline','lattice','boundary_mesh','boundary_polyline','boundary_lattice'))
+                or not math.isclose(state['res_size'],1000,abs_tol=1e-8,rel_tol=0)):
+            raise UnsupportedPart('Unsupported body ownership, body type or unit scale.')
+        previous,current=current,state['next']
+    if not seen or seen!=set(bodies):
+        raise UnsupportedPart('Body chain does not cover all decoded bodies.')
     history = check_history(base, histories[0])
     return base, {'implementation': 'independent-native', 'configuration': name,
                   'configuration_archive_id': config_id,

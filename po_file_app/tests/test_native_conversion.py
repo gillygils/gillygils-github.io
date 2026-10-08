@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from native_part.entities import LAYOUTS, decode_prefix
+from native_part.entities import LAYOUTS, VARIABLE, decode_prefix
 from native_part.model import saved_configuration, check_history, UnsupportedPart
 from native_part.shape import reconstruct, ShapeError
 from native_part.worker import convert
@@ -92,15 +92,23 @@ def binary_stream(records, kind='partition', schema='SCH_3501210_35102_13006'):
         if kind not in seen:
             data += b'\xff'
             seen.add(kind)
+        if kind in VARIABLE:
+            data += struct.pack('>i',len(record.get('variable',[])))
         data += encode('p',record['identity'])
-        for name, scalar, count in LAYOUTS[kind]:
+        fixed = LAYOUTS[kind][:-1] if kind in VARIABLE else LAYOUTS[kind]
+        for name, scalar, count in fixed:
             value = record['fields'].get(name,[0]*{'v':3,'h':3,'b':6,'i':2}.get(scalar,1) if scalar in 'vhbi' else 0)
-            data += encode(scalar,value)
+            if count==1:
+                data += encode(scalar,value)
+            else:
+                data += b''.join(encode(scalar,item) for item in record['fields'].get(name,[value]*count))
+        if kind in VARIABLE:
+            data += b''.join(encode(LAYOUTS[kind][-1][1],item) for item in record.get('variable',[]))
     return data+b'\0\1\0\1'
 
 
-def sample_part(path, schema='SCH_3501210_35102_13006', history_schema=None):
-    base = binary_stream(cube_records(), schema=schema)
+def sample_part(path, schema='SCH_3501210_35102_13006', history_schema=None, records=None):
+    base = binary_stream(cube_records() if records is None else records, schema=schema)
     history = binary_stream([
         {'type':3,'identity':100,'fields':{'current_pmark':101,'highest_id':10}},
         {'type':4,'identity':101,'fields':{'id':9,'delta_is_forward':0,'first_following':0}},
