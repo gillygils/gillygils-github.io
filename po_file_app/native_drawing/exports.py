@@ -175,6 +175,14 @@ def write_pdf(scene,geometry,output,font_path=None,bold_font=None):
                 c.saveState();c.translate(x*METRES_TO_POINTS,y*METRES_TO_POINTS)
                 c.rotate(math.degrees(item['angle']));c.line(0,-.6,length,-.6);c.restoreState()
             continue
+        if kind=='point':
+            if filled is not None:
+                raise ValueError('Unsupported point inside a filled annotation.')
+            # Preserve the saved location with a dot of the default line
+            # thickness. The report marks marker appearance as unverified.
+            c.circle(item['origin'][0]*METRES_TO_POINTS,
+                     item['origin'][1]*METRES_TO_POINTS,.09*72/25.4,stroke=0,fill=1)
+            continue
         segments=path_segments(item)
         if filled is not None:
             append_path(filled,segments,METRES_TO_POINTS)
@@ -227,7 +235,8 @@ def write_dxf(scene,geometry,output):
         if filled is not None:
             if kind not in ('line','arc'):raise ValueError('Unsupported filled annotation geometry.')
             filled.append(item);continue
-        if kind=='line':m.add_line(xy(item['start']),xy(item['end']),dxfattribs=attrs)
+        if kind=='point':m.add_point(xy(item['origin']),dxfattribs=attrs)
+        elif kind=='line':m.add_line(xy(item['start']),xy(item['end']),dxfattribs=attrs)
         elif kind in ('arc','circle','circular_arc'):
             center,r,a,s=arc_parameters(item)
             if abs(abs(s)-2*math.pi)<1e-8:m.add_circle(xy(center),r*1000,dxfattribs=attrs)

@@ -68,6 +68,7 @@ def signature(entity):
     common = [kind, d.layer.casefold(), d.get('linetype', 'BYLAYER').casefold(),
               d.get('color', 256), tuple(d.get('extrusion', (0, 0, 1)))]
     fields = {
+        'POINT': ('location', 'thickness', 'angle'),
         'LINE': ('start', 'end'), 'ARC': ('center', 'radius', 'start_angle', 'end_angle'),
         'CIRCLE': ('center', 'radius'), 'SOLID': ('vtx0', 'vtx1', 'vtx2', 'vtx3'),
         'ELLIPSE': ('center', 'major_axis', 'ratio', 'start_param', 'end_param'),

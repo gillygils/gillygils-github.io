@@ -52,7 +52,13 @@ class Commands:
                 raise ValueError('Too many display commands.')
             start = self.offset
             size, kind = self.take('2I')
-            if kind == 4 and size == 80:
+            if kind == 1 and size == 56:
+                origin = self.points(1)[0]
+                marker, flags = self.take('2I')
+                if marker != 2 or flags != 0:
+                    raise ValueError('Unsupported drawing point marker or flags.')
+                self.add('point', origin=origin, marker=marker)
+            elif kind == 4 and size == 80:
                 a, b = self.points(2)
                 if self.take('B') != 0:
                     raise ValueError('Unsupported line flags.')

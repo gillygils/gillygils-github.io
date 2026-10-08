@@ -65,6 +65,19 @@ def upload(name, data):
 
 
 class DrawingCommandsTests(unittest.TestCase):
+    def test_saved_point_is_consumed_without_skipping_following_geometry(self):
+        point = struct.pack('<II3d2I',56,1,.03,.04,0,2,0)
+        reader = Commands(point+line()); reader.read(2)
+        self.assertEqual(reader.offset,len(point)+len(line()))
+        self.assertEqual(reader.primitives[0],
+                         {'kind':'point','style':'CONTINUOUS','origin':[.03,.04,0], 'marker':2})
+        self.assertEqual(reader.primitives[1]['kind'],'line')
+        for marker,flags in ((3,0),(2,1)):
+            with self.assertRaisesRegex(ValueError,'point marker'):
+                Commands(struct.pack('<II3d2I',56,1,.03,.04,0,marker,flags)+line()).read(2)
+        with self.assertRaisesRegex(ValueError,'Truncated'):
+            Commands(point[:-1]).read(1)
+
     def test_sequential_sizes_are_not_serialized_lengths(self):
         reader = Commands(line()+line())
         self.assertEqual(reader.read(2), 114)
@@ -185,6 +198,37 @@ class DrawingCommandsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             view_tail(data[:-1],0)
 
+    def test_numbered_display_state_does_not_consume_the_next_view(self):
+        for label in ('Display State-2','Display State 2','Default_Display State-2'):
+            first = (struct.pack('<B13d',1,*matrix())+string(label)
+                     +struct.pack('<3IH',2,0,0xffffffff,1)+line())
+            second = (struct.pack('<B13d',1,*matrix())+string('Default_Appearance Display State')
+                      +struct.pack('<3IH',1,0,0xffffffff,0))
+            offset,span,display,primitives = view_tail(first+second,0)
+            self.assertEqual(offset,len(first))
+            self.assertEqual(span,len(first))
+            self.assertEqual(display,matrix())
+            self.assertEqual(len(primitives),1)
+
+    def test_saved_sheet_transform_uses_display_scale_and_depth(self):
+        model = matrix(); model[12] = 2
+        depth = matrix(); depth[11] = .01
+        definition = (b'moUnfoldedView'+string('Drawing View1')
+                      +struct.pack('<13d',*model)+struct.pack('<13d',*depth)
+                      +struct.pack('<13d',*matrix()))
+        with self.assertRaisesRegex(ValueError,'ambiguous'):
+            saved_transform(definition,'Drawing View1',[.4318,.2794],matrix()[:9])
+        self.assertEqual(saved_transform(definition,'Drawing View1',[.4318,.2794],matrix()),matrix())
+
+    def test_scene_retains_points_and_reports_unverified_marker_appearance(self):
+        entries = drawing_entries()
+        point = struct.pack('<II3d2I',56,1,.03,.04,0,2,0)
+        entries['Contents/DisplayLists'] = entries['Contents/DisplayLists'].replace(
+            struct.pack('<IH',1,1)+line(),struct.pack('<IH',1,2)+point+line(),1)
+        scene = decode_scene(entries)
+        self.assertEqual(sum(p['kind']=='point' for p in scene['primitives']),1)
+        self.assertTrue(any('marker appearance' in note for note in scene['limitations']))
+
     def test_hidden_and_additional_visible_groups_are_validated(self):
         entries = drawing_entries()
         def group(kind):
@@ -202,6 +246,23 @@ class DrawingCommandsTests(unittest.TestCase):
 
 
 class DrawingOutputTests(unittest.TestCase):
+    def test_point_is_preserved_in_vector_pdf_dxf_and_roundtrip_validation(self):
+        scene = {'size_m':[.4318,.2794],'primitives':[
+            {'kind':'point','style':'CONTINUOUS','origin':[.03,.04,0],'marker':2}]}
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); before,after=root/'a.dxf',root/'b.dxf'
+            write_pdf(scene,[],root/'a.pdf');write_dxf(scene,[],before)
+            page=PdfReader(root/'a.pdf').pages[0]
+            self.assertNotIn('/XObject',page['/Resources'])
+            self.assertIn(b' c',page.get_contents().get_data())
+            doc=ezdxf.readfile(before); point=doc.modelspace().query('POINT')[0]
+            self.assertEqual(tuple(point.dxf.location),(30,40,0))
+            doc.saveas(after)
+            self.assertTrue(validate_roundtrip(before,after)['roundtrip_verified'])
+            point.dxf.location=(30,41,0);doc.saveas(after)
+            with self.assertRaisesRegex(ValueError,'changed entity'):
+                validate_roundtrip(before,after)
+
     def test_worker_and_isolated_backend_export_without_network(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root/'Authored.SLDDRW'; sample_drawing(source)

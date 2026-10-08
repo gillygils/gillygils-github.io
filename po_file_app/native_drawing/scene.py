@@ -54,7 +54,13 @@ def saved_transform(definition, name, size, rotation, view_names=None):
         for p in range(a, b-104+1):
             values = struct.unpack_from('<13d', definition, p)
             if (rigid(values) and 0 < values[9] < size[0] and 0 < values[10] < size[1]
-                    and max(abs(values[i]-rotation[i]) for i in range(9)) < 1e-8):
+                    and max(abs(values[i]-rotation[i]) for i in range(9)) < 1e-8
+                    # Saved definition blocks can also contain model-space
+                    # transforms with the same orientation. The display's
+                    # scale and depth independently distinguish the sheet view.
+                    and (len(rotation) == 9 or
+                         (abs(values[12]-rotation[12]) < 1e-9
+                          and abs(values[11]-rotation[11]) < 1e-9))):
                 if not any(max(abs(x-y) for x,y in zip(values,v)) < 1e-9 for v in candidates):
                     candidates.append(values)
     if len(candidates) != 1:
@@ -138,7 +144,8 @@ def view_tail(data, offset):
     # decoded yet. Bound this recovery, retain its length, and never use it as
     # evidence that an entire document has been interpreted.
     tail = list(strings(data[offset+105:offset+4096]))
-    states = [(p,e,s) for p,e,s in tail if re.search(r'_((?:Appearance )?Display State)(?: \d+)?$',s)]
+    states = [(p,e,s) for p,e,s in tail
+              if re.search(r'(?:^|_)(?:Appearance )?Display State(?:[ -]\d+)?$',s)]
     if not states:
         raise ValueError('Unsupported view display-state framing.')
     p,end,state = states[0]
@@ -147,7 +154,7 @@ def view_tail(data, offset):
     if configuration not in (1,2) or reserved != 0 or marker != 0xffffffff:
         raise ValueError('Unsupported view display-state suffix.')
     reader.read(reader.take('H'))
-    return reader.offset, reader.offset-offset, matrix[:9], reader.primitives
+    return reader.offset, reader.offset-offset, matrix, reader.primitives
 
 
 def decode_scene(entries):
@@ -205,10 +212,13 @@ def decode_scene(entries):
     geometry = view_geometry(entries['Contents/VBLists'],entries['Contents/Definition'],size,rotations)
     if len(geometry)!=views:
         raise ValueError('Annotation views and cached geometry views disagree.')
+    limitations = ['Document metadata and layer/style interpretation are incomplete.',
+                   'Cached splines need the matching part file for exact geometry.',
+                   'Only the observed single-sheet layout is supported.',
+                   'Outputs are experimental and must be compared with a reference drawing.']
+    if any(item['kind'] == 'point' for item in reader.primitives):
+        limitations.append('Saved annotation points retain their locations; marker appearance is unverified.')
     return {'sheet':sheet_name,'size_m':size,'primitives':reader.primitives,'views':geometry,
             'command_count':reader.count,'production_supported':False,
             'opaque_prefix_bytes':prefix,'opaque_view_metadata_bytes':opaque,
-            'limitations':['Document metadata and layer/style interpretation are incomplete.',
-                           'Cached splines need the matching part file for exact geometry.',
-                           'Only the observed single-sheet layout is supported.',
-                           'Outputs are experimental and must be compared with a reference drawing.']}
+            'limitations':limitations}

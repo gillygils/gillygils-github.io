@@ -55,6 +55,9 @@ remains available in `native_drawing.__main__`; the CLI now exports the scene.
   symbols, triangular arrows, compound fills, Unicode text, rotations, glyph
   advances and supported font/style changes. Unsupported commands stop export.
   Structure sizes are not mistaken for serialized byte lengths.
+- The observed annotation-point command retains its saved location as a PDF
+  dot and a DXF/DWG POINT. Its original marker appearance is not yet verified
+  and is identified in the drawing report.
 - Observed single-sheet framing and physical sheet size, named cached views,
   saved rigid transforms, MFC reused-view class references, camera basis,
   declared edge/silhouette group counts, hidden edges and additional saved
@@ -113,6 +116,15 @@ PDF/DXF/DWG export took about 2.2 seconds on this cloud machine, excluding
 Python startup. This is a single-file result, not a general speed guarantee.
 C15997/C15996 DWG round-trips also retain all 1,533/1,596 generated entities
 respectively, including ellipse definitions, with clean audits.
+
+C15977 exports all three saved views on its 914.4 x 609.6 mm sheet, including
+the flat-pattern view, dimensions and an annotation point. Its numbered
+`Display State-2` label is consumed before the next view; saved display scale
+and depth distinguish sheet transforms from model transforms with the same
+orientation. Its DXF/DWG round-trip retains all 809 generated entities. Two
+edge-on circles retain their saved polylines and are reported. The saved
+preview was checked against the rendered PDF, but no printed reference PDF
+has been supplied for this drawing; marker appearance remains unverified.
 
 The DWG bridge adapts a temporary generated R2000 DXF for LibreDWG 0.14:
 it remaps typed handles for model space and omits optional object dictionaries
