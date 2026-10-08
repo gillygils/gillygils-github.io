@@ -1,6 +1,6 @@
 # PO File Packager
 
-Local browser app for text-based POs matching the supplied PO 1530 layout. Run on the Windows PC that can read your Z: drive. GitHub Pages cannot access your network drive or run SolidWorks.
+Local browser app for text-based POs matching the supplied PO 1530 and process-order PO 1926 layouts. Run on the Windows PC that can read your Z: drive. GitHub Pages cannot access your network drive or run SolidWorks.
 
 ## Windows setup
 
@@ -18,7 +18,7 @@ Open the local address printed by Streamlit on that PC. Run as the same Windows 
 
 ## Workflow
 
-1. Open the **Purchase orders** tab and upload the PO. Check every extracted line against the original.
+1. Open the **Purchase orders** tab and upload the PO. Check every extracted line against the original. Lookup uses the `CXXXXX` or `MXXXXX` part number, preserving suffixes such as `_001`. Process labels such as `- Machine`, `- Anodize`, or other process descriptions are ignored. Quantities can appear before the unit, immediately after the part number, or after the process text as in PO 1926. Description-only references to other parts are not added as PO items.
 2. Enter `Z:\`, which contains the IDT folders (for example, `Z:\IDT C13000` for C13030). Fast search is enabled by default: C13030 is searched under IDT C13000, and C15732_001 under IDT C15000, including their subfolders. Shared folders are scanned only once. Progress and completion messages appear during search. If grouping differs or files are missing, disable **Search only matching IDT folders (faster)** to search the entire source folder. Missing group folders produce missing matches, not an automatic full-drive search.
 3. Choose an output parent outside the searched source tree. Use a narrower source folder if you want output elsewhere on the same share.
 4. Search and review matches. Filename matching is case-insensitive and accepts an exact part number, optionally followed by a space or dash and description. `C15732_001` does not match `C15732` or `C15732_002`. Duplicate matches require a choice. Revisions are not guessed.
@@ -40,11 +40,11 @@ Drawing PDFs now have an optional Windows automation path. Enable **Automaticall
 
 ## Validation and limits
 
-Parsing was validated against all 12 lines in the supplied two-page PO 1530. Automated tests cover parsing, exact suffix matching, duplicate discovery, copying without overwrites, output path validation, and the browser packaging workflow. New independent-converter tests decode and export an authored cube through both the worker and app backend, check known dimensions/volume/area, block Python network access and vendor cache reads, and exercise malformed topology, stale configuration, timeout and failure cleanup.
+Parsing was validated against all 12 lines in the supplied two-page PO 1530 and all three lines in PO 1926 (C16913, C16915 and C16917, quantity 1 each). Automated tests cover varying process descriptions, C/M prefixes, quantities versus dates/prices, exact suffix matching, duplicate discovery, copying without overwrites, output path validation, and the browser packaging workflow. New independent-converter tests decode and export an authored cube through both the worker and app backend, check known dimensions/volume/area, block Python network access and vendor cache reads, and exercise malformed topology, stale configuration, timeout and failure cleanup.
 
 Our independent reader decoded all 1,815 records in the supplied C15999 base partition. Its STEP reimports as one valid solid with 53 faces, dimensions approximately 177.8 × 4.7625 × 146.05 mm, volume 74,032.5848864 mm³, and area 38,604.1960504 mm², agreeing with the provided STEP reference. The reference is only a validation input; conversion does not read it. C04571_001 and C04571_002 were also converted into valid 15-face solids and checked against an analytic volume calculation accounting for their rounded/chamfered bar outline, circular hole and oblong slot. Unknown layout families still fail, and errors now include the detected schema. The original CAD files and reference are not published. The eight additional samples (C04592, C13029_001, C13038_001, C13065, C13071, C13228, C00128_002 and C04045-001) also convert successfully. C00128_002 preserves its two bodies as two validated STEP solids. Each export is reimported and checked for body and face counts, per-body positive volume, total surface area and bounding dimensions. Regression tests cover intersection curves crossing a parameter seam, cone apexes, multiple bodies, malformed embedded schemas, and standalone conversion without a PO. Structural validation and a matching history mark do not prove fidelity for every other native feature or file. Review the first exports from other parts in a STEP viewer.
 
-Parts are limited to 64 MiB with a 120-second conversion timeout. Assemblies, requested configuration selection, general delta replay, additional Parasolid versions, spline surfaces and many less common geometry types remain unsupported. Drawings still use the experimental eDrawings/manual PDF workflow; independent drawing PDF rendering is unfinished. This Linux workspace cannot access Z: or execute the Windows launcher or Windows printing. Scanned PDFs, other PO layouts, revision-specific matching, and unattended/shared-user processing are not implemented.
+Parts are limited to 64 MiB with a 120-second conversion timeout. Assemblies, requested configuration selection, general delta replay, additional Parasolid versions, spline surfaces and many less common geometry types remain unsupported. Drawings still use the experimental eDrawings/manual PDF workflow; independent drawing PDF rendering is unfinished. This Linux workspace cannot access Z: or execute the Windows launcher or Windows printing. Scanned PDFs, arbitrary additional PO layouts, revision-specific matching, and unattended/shared-user processing are not implemented.
 
 Run core tests from this directory:
 

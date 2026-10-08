@@ -36,7 +36,7 @@ with st.sidebar:
     st.header('Folders')
     root = st.text_input('Source folder', value='Z:\\', help='Use the exact folder containing your IDT folders. A UNC path also works.')
     destination = st.text_input('Output parent folder', help='Choose a folder outside the source tree. Each run creates a new PO folder.')
-    grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; C15732_001 searches IDT C15000. Turn off to search the entire source folder if your files use a different layout.')
+    grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; M16915_001 searches IDT M16000. Turn off to search the entire source folder if your files use a different layout.')
     st.caption('Files on the source drive are copied. Existing output files are never overwritten.')
     step_provider = st.selectbox('STEP converter', ['Independent native reader (experimental)', 'Convert3D adapter (optional legacy)'])
     if step_provider.startswith('Independent'):
@@ -89,6 +89,7 @@ def render_po():
     st.subheader(f'PO {number} · {len(items)} line items')
     st.dataframe([{'Line': i.number, 'Part': i.part, 'Quantity': i.quantity, 'Unit': i.unit} for i in items], hide_index=True, use_container_width=True)
     st.warning('Review every extracted part number and quantity against the PO before processing. Suffixed parts such as C15732_001 are matched separately; they are not assumed to be configurations of C15732.')
+    st.caption('CXXXXX and MXXXXX part numbers are used for lookup. Process labels such as Machine, Anodize or other description text are ignored.')
     key = (upload.getvalue(), root, grouped)
     if st.session_state.get('search_key') != key:
         st.session_state.pop('matches', None)

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -14,6 +15,33 @@ from core import Item
 
 
 class AppTests(unittest.TestCase):
+    def test_process_po_packages_c_and_m_files_using_real_parser(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/'source'
+            files={'IDT C16000/C16913.sldprt':b'part','IDT C16000/C16913.slddrw':b'drawing',
+                   'IDT M16000/M16915_001.sldprt':b'suffixed-part'}
+            for name,data in files.items():
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+            text='PO # 1926\n1 PC C16913 - Machine 1 $0.00 $0.00\n2 PC M16915_001 - Anodize Type II Class 2 3 $0.00 $0.00'
+            def uploader(*args,**kwargs):
+                return [] if kwargs.get('accept_multiple_files') else io.BytesIO(b'synthetic-process-po')
+            with patch('streamlit.file_uploader',side_effect=uploader),patch('core.PdfReader') as reader:
+                reader.return_value.pages=[SimpleNamespace(extract_text=lambda **kwargs:text)]
+                app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=15).run()
+                next(c for c in app.checkbox if c.label=='Convert copied part files to STEP locally').uncheck()
+                app.sidebar.text_input[0].set_value(str(root))
+                app.sidebar.text_input[1].set_value(str(Path(temp)/'output'))
+                next(b for b in app.button if b.label=='Search source folder').click().run()
+                next(c for c in app.checkbox if c.label.startswith('I checked')).check().run()
+                next(b for b in app.button if b.label=='Create PO folder and process files').click().run()
+                self.assertFalse(app.exception)
+                job=app.session_state['completed_job']
+                self.assertEqual(job['report']['po'],'1926')
+                self.assertEqual([(i['part'],i['quantity']) for i in job['report']['items']],
+                                 [('C16913','1'),('M16915_001','3')])
+                with ZipFile(job['archive']) as archive:
+                    self.assertEqual(set(archive.namelist()),{Path(name).name for name in files}|{'purchase-order.pdf','report.json'})
+
     def test_zip_name_flat_contents_and_download_reset(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / 'source'

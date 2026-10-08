@@ -21,21 +21,33 @@ def parse_po(file):
     match = re.search(r'\bPO\s*#\s*:?\s*(\d+)\b', text, re.I)
     if not match:
         raise ValueError('Cannot find a PO number. Upload a text-based PDF like the sample PO; scanned PDFs need OCR.')
-    standard = r'^\s*(\d+)\s+(\d+(?:\.\d+)?)\s+([A-Z]{1,4})\s+([A-Z]\d{5}(?:_\d+)?)\b'
-    reordered = r'^\s*(\d+)\s+([A-Z]{1,4})\s+([A-Z]\d{5}(?:_\d+)?)\s+(\d+(?:\.\d+)?)\b'
+    # Process descriptions belong to the display text, not the file lookup
+    # identifier. Layout extraction sometimes moves Qty after that text.
+    part_number = r'([CM]\d{5}(?:_\d+)?)(?![\w])'
+    standard = re.compile(r'^\s*(\d+)\s+(\d+(?:\.\d+)?)\s+([A-Z]{1,4})\s+' + part_number, re.I)
+    reordered = re.compile(r'^\s*(\d+)\s+([A-Z]{1,4})\s+' + part_number, re.I)
+    immediate_quantity = re.compile(r'^\s+(\d+(?:\.\d+)?)(?=\s|$)')
+    # The quantity is the last standalone number before Due / monetary
+    # columns (or the end of the row), after any optional process label.
+    trailing_quantity = re.compile(r'^.*\s+(\d+(?:\.\d+)?)(?=\s*$|\s+(?:\$|\d{1,2}/\d{1,2}/\d{2,4}\b))')
     items = []
     for line in text.splitlines():
-        found = re.match(standard, line)
+        found = standard.match(line)
         if found:
             n, qty, unit, part = found.groups()
         else:
-            found = re.match(reordered, line)
+            found = reordered.match(line)
             if not found:
                 continue
-            n, unit, part, qty = found.groups()
-        items.append(Item(int(n), qty, unit, part.upper()))
+            n, unit, part = found.groups()
+            tail = line[found.end():]
+            quantity = immediate_quantity.match(tail) or trailing_quantity.match(tail)
+            if not quantity:
+                raise ValueError(f'Cannot read the quantity for line {n}, part {part.upper()}. Review the PDF format before proceeding.')
+            qty = quantity[1]
+        items.append(Item(int(n), qty, unit.upper(), part.upper()))
     if not items:
-        raise ValueError('No line items found. This parser expects the layout used by PO 1530; review other PO formats separately.')
+        raise ValueError('No CXXXXX or MXXXXX line items found. Use a text-based PO with numbered item, quantity, unit and part fields.')
     if len({i.number for i in items}) != len(items):
         raise ValueError('Duplicate line numbers found; check the PDF before proceeding.')
     if [i.number for i in items] != list(range(1, len(items) + 1)):
