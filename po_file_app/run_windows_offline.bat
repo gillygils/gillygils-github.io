@@ -1,6 +1,8 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+echo Starting app in: %CD%
+echo Close any older PO File Packager command windows before starting.
 if not exist ".venv\Scripts\python.exe" (
   echo Offline startup requires an existing installation. Run run_windows.bat once while connected.
   goto failed
@@ -12,7 +14,7 @@ if errorlevel 1 (
 )
 ".venv\Scripts\python.exe" converter\setup.py --offline
 if errorlevel 1 goto failed
-".venv\Scripts\python.exe" -m streamlit run app.py --server.address 127.0.0.1 --browser.gatherUsageStats false
+".venv\Scripts\python.exe" -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --browser.gatherUsageStats false
 if errorlevel 1 goto failed
 exit /b 0
 :failed

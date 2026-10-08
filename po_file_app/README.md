@@ -65,3 +65,5 @@ This offline workflow still uses the installed permitted Convert3D reader. The
 independent `native_part` decoder is research in progress and does not produce
 STEP yet. Offline operation and independence from vendor code are separate
 capabilities.
+
+If the STEP checkbox is disabled after setup reports success, expand **STEP converter diagnostics** in the sidebar. It shows the running app folder, Python environment, cache location and precise missing/checksum/library error. Compare its app folder with the console's setup folder. Close older app command windows before starting; launchers use port 8501 explicitly to prevent silently starting another instance on a different port.

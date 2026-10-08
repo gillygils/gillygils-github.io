@@ -64,6 +64,8 @@ def ensure_node(offline=False):
 
 def setup(offline=False):
     print('Preparing local part converter…', flush=True)
+    print('App folder: ' + str(APP), flush=True)
+    print('Converter cache: ' + str(APP / '.converter' / 'modules'), flush=True)
     executable = ensure_node(offline=offline)
     manifest = json.loads(MANIFEST.read_text())
     destination = APP / '.converter' / 'modules'
@@ -73,7 +75,7 @@ def setup(offline=False):
         if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == file['sha256']:
             continue
         if offline:
-            raise RuntimeError('Offline converter component is missing or fails its checksum: ' + file['name']
+            raise RuntimeError(('Offline converter file is missing: ' if not target.is_file() else 'Offline converter checksum mismatch: ') + str(target)
                                + '. Run run_windows.bat once while connected to install this app version.')
         print('Downloading converter component ' + file['name'], flush=True)
         try:

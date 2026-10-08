@@ -42,3 +42,23 @@ class LocalConverterTests(unittest.TestCase):
             with patch('local_converter.converter_ready',return_value=True), patch('local_converter.node_executable',return_value='node'), patch('local_converter.subprocess.run',return_value=result):
                 with self.assertRaisesRegex(RuntimeError,'boundary-representation'): convert_part(source,destination)
             self.assertFalse(destination.exists())
+
+    def test_readiness_reports_missing_and_corrupt_cache_paths(self):
+        import json,hashlib
+        from local_converter import converter_diagnostics
+        with tempfile.TemporaryDirectory() as temp:
+            app=Path(temp);modules=app/'.converter'/'modules';modules.mkdir(parents=True)
+            manifest=app/'manifest.json';manifest.write_text(json.dumps({'files':[
+                {'name':'reader.js','sha256':hashlib.sha256(b'valid').hexdigest()}]}))
+            with patch('local_converter.APP',app),patch('local_converter.MANIFEST',manifest),patch('local_converter.node_executable',return_value='node'):
+                report=converter_diagnostics()
+                self.assertFalse(report['ready'])
+                self.assertTrue(any(str(modules/'reader.js') in problem for problem in report['problems']))
+                (modules/'reader.js').write_bytes(b'wrong')
+                self.assertTrue(any('checksum mismatch' in p for p in converter_diagnostics()['problems']))
+                (modules/'reader.js').write_bytes(b'valid')
+                self.assertTrue(converter_diagnostics()['ready'])
+                with patch.dict('sys.modules',{'OCP':None}):
+                    report=converter_diagnostics()
+                    self.assertFalse(report['ready'])
+                    self.assertTrue(any('Geometry library' in p for p in report['problems']))

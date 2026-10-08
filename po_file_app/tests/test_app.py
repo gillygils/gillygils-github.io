@@ -40,7 +40,7 @@ class AppTests(unittest.TestCase):
                 return st.button(label, on_click=kwargs['on_click'] if callable(kwargs['on_click']) else None)
 
             with patch('streamlit.file_uploader', side_effect=uploader), patch('core.parse_po', return_value=('1530', [Item(1, '50', 'PC', 'C13030')])), patch('streamlit.download_button', side_effect=download):
-                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
+                app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=15).run()
                 automatic = next(c for c in app.checkbox if c.label == 'Convert copied part files to STEP locally')
                 if not automatic.disabled:
                     automatic.uncheck()

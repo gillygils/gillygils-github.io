@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from local_converter import converter_ready, convert_part
+from local_converter import converter_ready, converter_diagnostics, convert_part
 from drawing_converter.backend import drawing_capability, convert_drawing
 from core import parse_po, find_files, validate_destination, copy_new, add_converted_exports
 
@@ -41,7 +41,9 @@ with st.sidebar:
     ready = converter_ready()
     auto_step = st.checkbox('Convert copied part files to STEP locally', value=ready, disabled=not ready, help='Uses the permitted local reader. Currently requires one valid solid per part; unsupported files are reported as failures.')
     if not ready:
-        st.caption('Local conversion is not installed. Run the updated run_windows.bat to prepare it.')
+        st.caption('The converter is not ready in this running app. Expand STEP converter diagnostics below.')
+    with st.expander('STEP converter diagnostics'):
+        st.json(converter_diagnostics())
     drawing_control, drawing_status = drawing_capability()
     auto_pdf = st.checkbox('Automatically print drawings to PDF (experimental)', value=False, disabled=drawing_control is None,
                            help='Uses your installed eDrawings and Microsoft Print to PDF. Requires a signed-in Windows desktop and a first-run test.')

@@ -1,4 +1,6 @@
 """Run the permitted reader offline and validate a single-solid STEP result."""
+import hashlib
+import sys
 import importlib.util
 import json
 import math
@@ -10,9 +12,31 @@ from pathlib import Path
 from converter.setup import APP, MANIFEST, node_executable
 
 
+def converter_diagnostics():
+    report = {'app_folder': str(APP), 'python': sys.executable,
+              'cache_folder': str(APP / '.converter' / 'modules'),
+              'node': node_executable(), 'problems': []}
+    if not report['node']:
+        report['problems'].append('Node runtime not found in this app folder or PATH.')
+    try:
+        import OCP
+    except Exception as exc:
+        report['problems'].append('Geometry library cannot load in this Python environment: ' + str(exc))
+    try:
+        for file in json.loads(MANIFEST.read_text())['files']:
+            target = APP / '.converter' / 'modules' / file['name']
+            if not target.is_file():
+                report['problems'].append('Missing converter file: ' + str(target))
+            elif hashlib.sha256(target.read_bytes()).hexdigest() != file['sha256']:
+                report['problems'].append('Converter checksum mismatch: ' + str(target))
+    except (OSError, ValueError, KeyError) as exc:
+        report['problems'].append('Cannot check converter cache: ' + str(exc))
+    report['ready'] = not report['problems']
+    return report
+
+
 def converter_ready():
-    files = json.loads(MANIFEST.read_text())['files']
-    return bool(node_executable() and importlib.util.find_spec('OCP') and all((APP / '.converter' / 'modules' / file['name']).is_file() for file in files))
+    return converter_diagnostics()['ready']
 
 
 def convert_part(source, destination):
