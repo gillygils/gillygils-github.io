@@ -187,7 +187,8 @@ def write_pdf(scene,geometry,output,font_path=None,bold_font=None):
         if filled is not None:
             append_path(filled,segments,METRES_TO_POINTS)
         else:
-            pattern={'CENTER':[43.2,3.6,3.6,3.6],'HIDDEN':[3.6,1.8]}.get(item['style'],[])
+            pattern={'CENTER':[43.2,3.6,3.6,3.6],'HIDDEN':[3.6,1.8],
+                     'PHANTOM':[90,18,18,18,18,18]}.get(item['style'],[])
             phase=(math.dist(item['start'][:2],item['end'][:2])*METRES_TO_POINTS/2
                    if item['style']=='HIDDEN' and kind=='line' else 0)
             c.setDash(pattern,phase)
@@ -209,6 +210,8 @@ def write_dxf(scene,geometry,output):
     d.header['$EXTMAX']=(*[v*1000 for v in scene['size_m']],0)
     d.linetypes.new('CENTER',dxfattribs={'description':'Center','pattern':[19.05,15.24,-1.27,1.27,-1.27]})
     d.linetypes.new('HIDDEN',dxfattribs={'description':'Hidden edges','pattern':[1.905,1.27,-.635]})
+    d.linetypes.new('PHANTOM',dxfattribs={'description':'Phantom (standard pattern)',
+                                      'pattern':[63.5,31.75,-6.35,6.35,-6.35,6.35,-6.35]})
     d.styles.new('DrawingFont',dxfattribs={'font':'gothic.ttf'})
     d.styles.new('DrawingFontBold',dxfattribs={'font':'gothicb.ttf'})
     d.layers.new('EXPERIMENTAL_NOTICE',dxfattribs={'color':1})

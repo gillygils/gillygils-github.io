@@ -97,8 +97,17 @@ def part_splines(source):
             raise ValueError('Spline reference has the wrong record type.')
         return record
     geometry = Geometry(get)
-    return [(r['identity'],geometry.curve(r['identity'])) for r in report['records']
-            if r['type']==134], metadata
+    candidates, unsupported = [], []
+    for record in report['records']:
+        if record['type'] != 134:
+            continue
+        params = geometry.fields(record['fields']['nurbs'],136)
+        if params['periodic'] or params['rational'] or params['vertex_dim'] != 3:
+            unsupported.append({'identity':record['identity'],
+                                'reason':'Periodic/rational or non-3D spline candidate is unsupported.'})
+            continue
+        candidates.append((record['identity'],geometry.curve(record['identity'])))
+    return candidates, {**metadata,'unsupported_spline_candidates':unsupported}
 
 
 def resolve_spline(points, candidates, matrix):
@@ -150,6 +159,8 @@ def drawing_geometry(scene, part=None):
             points = curve['projected']
             if curve['record_type']==769:
                 try:
+                    if view.get('coordinate_space') == 'view_plane':
+                        raise ValueError('Detail curves contain projected samples, not source 3D spline definitions.')
                     if not candidates:raise ValueError('Matching .sldprt is required for this exact spline.')
                     result.append(resolve_spline(curve['points'],candidates,view['transform']))
                 except ValueError as exc:

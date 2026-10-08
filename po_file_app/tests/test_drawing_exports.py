@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ezdxf
 from pypdf import PdfReader
 from native_drawing.commands import Commands
-from native_drawing.scene import decode_scene, transform, saved_transform, view_tail
-from native_drawing.curves import circular, resolve_spline, projected_circle
+from native_drawing.scene import decode_scene, transform, saved_transform, view_tail, view_geometry
+from native_drawing.curves import circular, resolve_spline, projected_circle, part_splines, drawing_geometry
 from native_drawing.exports import write_pdf, write_dxf, append_path, flatten_arc, NOTICE
 from native_drawing.worker import export_drawing
 from native_drawing.backend import convert_drawing_native
@@ -35,19 +35,35 @@ def line(a=(0, 0, 0), b=(.02, .01, 0)):
 def matrix():
     return [1, 0, 0, 0, 1, 0, 0, 0, 1, .05, .04, 0, 1]
 
+def saved_matrix(values=None, compact=False):
+    values = matrix() if values is None else values
+    return (struct.pack('<IIB',1,0,0 if compact else 1)
+            +struct.pack('<4d' if compact else '<13d',*(values[9:] if compact else values)))
+
+def bucket_header(mode=0):
+    return (b'\xff\xff'+struct.pack('<HH',1,14)+b'uiViewBucket_c'
+            +struct.pack('<3d2IdI',0,0,1,mode,0,1,25)
+            +bytes(4 if mode == 1 else 8))
+
+def bucket_label(value):
+    return struct.pack('<HI',1,1)+string(value)
+
+def curve_group(kind=801, a=(0,0,0), b=(.02,.01,0), identity=99):
+    return struct.pack('<5I6d',1,identity,1,kind,2,*a,*b)
+
 
 def drawing_entries():
     setup = struct.pack('<II4IHfIQ', 60, 9, 0, 0, 0, 0, 0, 0, 0, 0)
     display = (struct.pack('<I', 1)+b'authored opaque metadata'
-               +struct.pack('<H', 2)+setup+line()
+               +struct.pack('<IH', 1, 2)+setup+line()
                +struct.pack('<2d', .2794, .4318)+string('Sheet1-Active')
                +struct.pack('<2IB4dBI', 1, 1, 0, 0, 0, 0, 0, 0, 1)
                +struct.pack('<IH', 1, 1)+line()
                +struct.pack('<B13d', 1, *matrix())+string('Default_Display State')+struct.pack('<3IH', 1, 0, 0xffffffff, 0)
                +bytes(16)+string('')+struct.pack('<3I', 1, 3, 0))
-    vb = (struct.pack('<I3d', 1, 0, 0, 1)+bytes(28)+struct.pack('<5I', 0, 1, 0, 1, 801)
-          +struct.pack('<I6d', 2, 0, 0, 0, .02, .01, 0)+string('Test-1@Drawing View1'))
-    definition = b'moAbsoluteView'+string('Drawing View1')+b'opaque'+struct.pack('<13d', *matrix())
+    vb = (struct.pack('<I',1)+bucket_header()+struct.pack('<5I', 0, 1, 0, 1, 801)
+          +struct.pack('<I6d', 2, 0, 0, 0, .02, .01, 0)+bucket_label('Test-1@Drawing View1'))
+    definition = b'moAbsoluteView'+string('Drawing View1')+b'opaque'+saved_matrix()
     return {'Contents/DisplayLists': display, 'Contents/VBLists': vb,
             'Contents/Definition': definition, 'SheetPreviews/SheetNames': struct.pack('<H', 1)+string('Sheet1')+bytes(4)}
 
@@ -65,6 +81,155 @@ def upload(name, data):
 
 
 class DrawingCommandsTests(unittest.TestCase):
+    def test_unsupported_optional_part_splines_are_reported_without_losing_supported_candidates(self):
+        records = [
+            {'identity':1,'type':134,'fields':{'nurbs':10}},
+            {'identity':2,'type':134,'fields':{'nurbs':20}},
+            {'identity':10,'type':136,'fields':{'periodic':0,'rational':0,'vertex_dim':3,
+             'n_vertices':4,'n_knots':2,'degree':3,'bspline_vertices':11,'knots':12,'knot_mult':13}},
+            {'identity':20,'type':136,'fields':{'periodic':1,'rational':0,'vertex_dim':3}},
+            {'identity':11,'type':45,'variable':[0,0,0,.002,.006,0,.008,.006,0,.01,0,0]},
+            {'identity':12,'type':128,'variable':[0,1]},
+            {'identity':13,'type':127,'variable':[4,4]},
+        ]
+        with patch('native_part.model.load_model',return_value=({'records':records},{'configuration':'Authored'})):
+            candidates,metadata=part_splines('Authored.SLDPRT')
+        self.assertEqual(len(candidates),1)
+        self.assertEqual(candidates[0][0],1)
+        self.assertEqual(candidates[0][1].NbPoles(),4)
+        self.assertEqual(metadata['unsupported_spline_candidates'][0]['identity'],2)
+        # A broken supported curve is still an error, not an approximation.
+        records[4]['variable']=records[4]['variable'][:-1]
+        with patch('native_part.model.load_model',return_value=({'records':records},{})):
+            with self.assertRaisesRegex(ValueError,'array sizes'):part_splines('Authored.SLDPRT')
+
+    def test_line_pair_arrays_preserve_each_segment_and_reject_bad_layouts(self):
+        data = struct.pack('<III12dI',144,5,4,0,0,0,.01,0,0,.01,0,0,.01,.02,0,0)
+        reader = Commands(data+line());reader.read(2)
+        self.assertEqual(reader.offset,len(data)+len(line()))
+        self.assertEqual(len(reader.primitives),3)
+        self.assertEqual(reader.primitives[1]['end'],[.01,.02,0])
+        for offset,value in ((0,145),(8,3),(len(data)-4,1)):
+            broken=bytearray(data);struct.pack_into('<I',broken,offset,value)
+            with self.assertRaisesRegex(ValueError,'line-pair'):
+                Commands(bytes(broken)).read(1)
+
+    def test_single_glyph_text_without_advances_keeps_the_next_command_aligned(self):
+        font = (struct.pack('<II2dIdI',126,10,.002,0,0,1,0)
+                +string('Century Gothic')+struct.pack('<2d',1,0))
+        text = (struct.pack('<II3dIdI',156,18,.1,.1,0,0,0,0)
+                +string('A')+struct.pack('<HId',0,0,1))
+        reader=Commands(font+text+line());reader.read(3)
+        self.assertEqual(reader.offset,len(font+text+line()))
+        self.assertEqual(reader.primitives[0]['text'],'A')
+        self.assertEqual(reader.primitives[0]['advances'],[0.])
+        self.assertEqual(reader.primitives[1]['kind'],'line')
+        unsupported=text.replace(string('A'),string('AB'))
+        with self.assertRaisesRegex(ValueError,'text framing'):
+            Commands(font+unsupported).read(2)
+        unsupported=text[:-8]+struct.pack('<d',2)
+        with self.assertRaisesRegex(ValueError,'single-glyph text suffix'):
+            Commands(font+unsupported).read(2)
+
+    def test_section_component_annotation_and_phantom_style_preserve_following_line(self):
+        group = (struct.pack('<II8I6dI',90,29,199,8,2,1,2,123,124,2,*([0.]*6),1)
+                 +string('')+struct.pack('<2I',4,1)
+                 +b''.join(string(v) for v in ('Test@View','','',''))
+                 +struct.pack('<6I',5,0,0,0,0,0)
+                 +b''.join(string(v) for v in ('','','','<objID=1>')))
+        style=struct.pack('<IIIHfQ',72,12,0,2,-1,0)+string('PHANTOM')
+        reader=Commands(group+style+line());reader.read(3)
+        self.assertEqual(reader.offset,len(group+style+line()))
+        self.assertEqual(reader.primitives[0]['style'],'PHANTOM')
+
+    def test_compact_identity_view_consumes_only_its_own_metadata(self):
+        first = (struct.pack('<B4d',0,*matrix()[9:])+string('Default_Display State')
+                 +struct.pack('<3IH',1,0,0xffffffff,1)+line())
+        offset,span,pose,primitives=view_tail(first+b'next-view',0)
+        self.assertEqual(offset,len(first));self.assertEqual(pose,matrix())
+        self.assertEqual(primitives[0]['kind'],'line')
+        with self.assertRaises(ValueError):view_tail(first[:-1],0)
+        with self.assertRaisesRegex(ValueError,'metadata framing'):view_tail(b'\x02'+first[1:],0)
+
+    def test_framed_compact_transform_rejects_unframed_or_ambiguous_poses(self):
+        definition = b'moAbsoluteView'+string('Drawing View1')+struct.pack('<13d',*matrix())
+        with self.assertRaisesRegex(ValueError,'unsupported'):
+            saved_transform(definition,'Drawing View1',[.4318,.2794],matrix())
+        definition += saved_matrix(compact=True)
+        self.assertEqual(saved_transform(definition,'Drawing View1',[.4318,.2794],matrix()),matrix())
+        another=matrix();another[9]+=.01
+        with self.assertRaisesRegex(ValueError,'ambiguous'):
+            saved_transform(definition+saved_matrix(another,compact=True),'Drawing View1',[.4318,.2794],matrix())
+
+    def test_sheet_command_suffix_without_list_header_is_not_a_second_sheet_candidate(self):
+        entries=drawing_entries();data=entries['Contents/DisplayLists']
+        setup=struct.pack('<II4IHfIQ',60,9,0,0,0,0,0,0,0,0)
+        fake_count=struct.pack('<II4IHfIQ',60,9,0,0,0,0,0,0,0,2<<48)
+        entries['Contents/DisplayLists']=data.replace(
+            struct.pack('<IH',1,2)+setup+line(),struct.pack('<IH',1,3)+fake_count+setup+line(),1)
+        scene=decode_scene(entries)
+        self.assertEqual(scene['size_m'],[.4318,.2794])
+
+    def test_observed_tail_variant_eight_does_not_allow_unknown_or_extra_bytes(self):
+        entries=drawing_entries();data=entries['Contents/DisplayLists']
+        entries['Contents/DisplayLists']=data[:-12]+struct.pack('<3I',1,8,0)
+        self.assertEqual(decode_scene(entries)['display_tail_variant'],8)
+        for tail in (struct.pack('<3I',1,9,0),struct.pack('<3I',1,8,1),struct.pack('<3I',1,8,0)+b'new sheet'):
+            entries['Contents/DisplayLists']=data[:-12]+tail
+            with self.assertRaisesRegex(ValueError,'drawing tail'):decode_scene(entries)
+
+    def test_empty_saved_views_match_null_bucket_pointers_without_eating_next_view(self):
+        entries=drawing_entries();data=entries['Contents/DisplayLists']
+        framing=struct.pack('<2IB4dBI',1,1,0,0,0,0,0,0,1)
+        empty=(struct.pack('<IB4d',0,0,*matrix()[9:])+string('Default_Display State')
+               +struct.pack('<3I',1,0,0xffffffff))
+        entries['Contents/DisplayLists']=data.replace(framing,framing[:-4]+struct.pack('<I',2)+empty,1)
+        entries['Contents/VBLists']=struct.pack('<IH',2,0)+entries['Contents/VBLists'][4:]
+        scene=decode_scene(entries)
+        self.assertEqual(scene['empty_saved_views'],1);self.assertEqual(len(scene['views']),1)
+        broken=bytearray(entries['Contents/VBLists']);struct.pack_into('<H',broken,4,1)
+        entries['Contents/VBLists']=bytes(broken)
+        with self.assertRaisesRegex(ValueError,'empty view pointers'):decode_scene(entries)
+
+    def test_mode_one_groups_hidden_arrays_before_visible_arrays(self):
+        data=(struct.pack('<I',1)+bucket_header(1)+curve_group(817)+curve_group(817)
+              +curve_group(801)+curve_group(801)+bucket_label('Test@Drawing View1'))
+        definition=b'moAbsoluteView'+string('Drawing View1')+saved_matrix()
+        view=view_geometry(data,definition,[.4318,.2794],[matrix()])[0]
+        self.assertEqual([c['style'] for c in view['curves']],['HIDDEN','HIDDEN','CONTINUOUS','CONTINUOUS'])
+        broken=data.replace(curve_group(801)+curve_group(801),curve_group(801)+curve_group(817),1)
+        with self.assertRaisesRegex(ValueError,'hidden group ordering'):
+            view_geometry(broken,definition,[.4318,.2794],[matrix()])
+
+    def test_verified_section_selection_copies_are_excluded_and_changed_copies_fail(self):
+        first=(bucket_header()+struct.pack('<I',0)+curve_group(801)+bucket_label('A@Drawing View1'))
+        # The post-label array has a sentinel identity and identical points.
+        copy=bytes(20)+curve_group(801,identity=0xffffffff)
+        second=bucket_header()+struct.pack('<I',0)+curve_group(801)+bucket_label('B@Drawing View2')
+        definition=(b'moAbsoluteView'+string('Drawing View1')+saved_matrix()
+                    +b'moUnfoldedView'+string('Drawing View2')+saved_matrix())
+        data=struct.pack('<I',2)+first+copy+second
+        views=view_geometry(data,definition,[.4318,.2794],[matrix(),matrix()])
+        self.assertEqual([len(v['curves']) for v in views],[1,1])
+        self.assertEqual(views[0]['verified_selection_copies'],1)
+        broken=data.replace(copy,bytes(20)+curve_group(801,b=(.03,.01,0),identity=0xffffffff),1)
+        with self.assertRaisesRegex(ValueError,'selection curves differ'):
+            view_geometry(broken,definition,[.4318,.2794],[matrix(),matrix()])
+
+    def test_detail_plane_samples_keep_two_dimensions_and_skip_unrelated_shaded_labels(self):
+        pose=[0,0,1,0,1,0,-1,0,0,.05,.04,0,1]
+        definition=(b'moDetailView'+string('Detail1')+b'moDetailViewLabel_c'+string('Label')
+                    +saved_matrix(pose))
+        data=(struct.pack('<I',1)+bucket_header()+struct.pack('<I',0)
+              +curve_group(769)+bucket_label('Test@Detail1')+string('Test@Detail1'))
+        view=view_geometry(data,definition,[.4318,.2794],[pose])[0]
+        self.assertEqual(view['coordinate_space'],'view_plane')
+        self.assertEqual(view['curves'][0]['projected'][1],[.07,.05,0])
+        with patch('native_drawing.curves.resolve_spline',side_effect=AssertionError('Used 2D samples as 3D part points')):
+            geometry,report=drawing_geometry({'views':[view]})
+        self.assertEqual(geometry[0]['kind'],'polyline')
+        self.assertIn('projected samples',report['unresolved_splines'][0]['reason'])
+
     def test_saved_point_is_consumed_without_skipping_following_geometry(self):
         point = struct.pack('<II3d2I',56,1,.03,.04,0,2,0)
         reader = Commands(point+line()); reader.read(2)
@@ -182,10 +347,10 @@ class DrawingCommandsTests(unittest.TestCase):
         self.assertAlmostEqual(abs(result['sweep']), math.tau)
 
     def test_reused_view_class_reference_and_ambiguous_transforms(self):
-        definition = b'opaque'+struct.pack('<H',0x80d8)+string('Reused View')+struct.pack('<13d',*matrix())
+        definition = b'opaque'+struct.pack('<H',0x80d8)+string('Reused View')+saved_matrix()
         self.assertEqual(saved_transform(definition,'Reused View',[.4318,.2794],matrix()[:9]),matrix())
         another = matrix(); another[9] += .01
-        definition += struct.pack('<H',0x80d8)+string('Reused View')+struct.pack('<13d',*another)
+        definition += struct.pack('<H',0x80d8)+string('Reused View')+saved_matrix(another)
         with self.assertRaisesRegex(ValueError,'ambiguous'):
             saved_transform(definition,'Reused View',[.4318,.2794],matrix()[:9])
 
@@ -214,8 +379,7 @@ class DrawingCommandsTests(unittest.TestCase):
         model = matrix(); model[12] = 2
         depth = matrix(); depth[11] = .01
         definition = (b'moUnfoldedView'+string('Drawing View1')
-                      +struct.pack('<13d',*model)+struct.pack('<13d',*depth)
-                      +struct.pack('<13d',*matrix()))
+                      +saved_matrix(model)+saved_matrix(depth)+saved_matrix())
         with self.assertRaisesRegex(ValueError,'ambiguous'):
             saved_transform(definition,'Drawing View1',[.4318,.2794],matrix()[:9])
         self.assertEqual(saved_transform(definition,'Drawing View1',[.4318,.2794],matrix()),matrix())
@@ -233,19 +397,44 @@ class DrawingCommandsTests(unittest.TestCase):
         entries = drawing_entries()
         def group(kind):
             return struct.pack('<5I6d',1,99,1,kind,2,0,0,0,.02,.01,0)
-        entries['Contents/VBLists'] = (struct.pack('<I3d',1,0,0,1)+bytes(28)
-                                      +group(817)+group(801)+group(801)+string('Test-1@Drawing View1'))
+        entries['Contents/VBLists'] = (struct.pack('<I',1)+bucket_header()
+                                      +group(817)+group(801)+group(801)+bucket_label('Test-1@Drawing View1'))
         scene = decode_scene(entries)
         view = scene['views'][0]
         self.assertEqual([p['style'] for p in view['curves']],['HIDDEN','CONTINUOUS','HIDDEN'])
         self.assertEqual([p['count'] for p in view['groups']],[1,1,1])
-        broken = bytearray(entries['Contents/VBLists']);struct.pack_into('<I',broken,56,2)
+        broken = bytearray(entries['Contents/VBLists']);struct.pack_into('<I',broken,76,2)
         entries['Contents/VBLists'] = bytes(broken)
         with self.assertRaisesRegex(ValueError,'visibility'):
             decode_scene(entries)
 
 
 class DrawingOutputTests(unittest.TestCase):
+    def test_dwg_check_rejects_changed_dash_gap_signs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);before,after=root/'a.dxf',root/'b.dxf'
+            doc=ezdxf.new('R2000');doc.units=4
+            doc.linetypes.new('PHANTOM',dxfattribs={'pattern':[6,3,-1,1,-1]})
+            doc.modelspace().add_line((0,0),(10,0),dxfattribs={'linetype':'PHANTOM'})
+            doc.saveas(before)
+            pattern=doc.linetypes.get('PHANTOM').pattern_tags.tags
+            index=next(i for i,t in enumerate(pattern) if t.code==49 and t.value<0)
+            pattern[index]=type(pattern[index])(49,abs(pattern[index].value))
+            doc.saveas(after)
+            with self.assertRaisesRegex(ValueError,'line pattern'):validate_roundtrip(before,after)
+
+    def test_phantom_style_is_saved_in_pdf_and_dxf(self):
+        scene={'size_m':[.4318,.2794],'primitives':[
+            {'kind':'line','style':'PHANTOM','start':[.03,.04,0],'end':[.06,.04,0]}]}
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);write_pdf(scene,[],root/'a.pdf');write_dxf(scene,[],root/'a.dxf')
+            data=PdfReader(root/'a.pdf').pages[0].get_contents().get_data()
+            self.assertIn(b'[90 18 18 18 18 18]',data)
+            doc=ezdxf.readfile(root/'a.dxf')
+            self.assertEqual(doc.modelspace().query('LINE')[0].dxf.linetype,'PHANTOM')
+            self.assertEqual([tag.value for tag in doc.linetypes.get('PHANTOM').pattern_tags.tags if tag.code==49],
+                             [31.75,-6.35,6.35,-6.35,6.35,-6.35])
+
     def test_point_is_preserved_in_vector_pdf_dxf_and_roundtrip_validation(self):
         scene = {'size_m':[.4318,.2794],'primitives':[
             {'kind':'point','style':'CONTINUOUS','origin':[.03,.04,0],'marker':2}]}

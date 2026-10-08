@@ -59,9 +59,16 @@ remains available in `native_drawing.__main__`; the CLI now exports the scene.
   dot and a DXF/DWG POINT. Its original marker appearance is not yet verified
   and is identified in the drawing report.
 - Observed single-sheet framing and physical sheet size, named cached views,
-  saved rigid transforms, MFC reused-view class references, camera basis,
+  framed full/compact saved transforms, MFC reused-view class references, camera basis,
   declared edge/silhouette group counts, hidden edges and additional saved
   display-state commands.
+- Leading empty display views matched to their null cached-bucket pointers,
+  the two observed closing-tail variants, line-pair arrays, single-glyph
+  section labels and component annotations. Unknown layouts still fail.
+- The observed detail-view bucket stores projected XY samples. Its typed
+  detail feature and planar cache identify those coordinates; its model
+  rotation is not applied a second time. These samples remain reported
+  polylines, not exact splines recovered from unrelated 3D part points.
 - Analytic lines, circles and arcs after checking all cached points. Exact
   cubic splines are resolved from the matching part by checking every saved
   point against one unique native curve. Control points are not fitted from
@@ -72,6 +79,9 @@ remains available in `native_drawing.__main__`; the CLI now exports the scene.
   unresolved curves retain their saved polyline samples and are reported.
 - If a spline cannot be resolved, the marked draft retains its sampled
   polyline, with each unresolved curve and reason listed in the report.
+  Unsupported periodic/rational/non-3D curves in the optional part are
+  reported as unavailable candidates; they do not abort the drawing draft.
+  Structurally invalid supported part curves still fail.
 
 PDF uses local Windows `GOTHIC.TTF` and `GOTHICB.TTF` when available. Otherwise
 it substitutes Helvetica/Helvetica Bold and reports that substitution. Fonts
@@ -126,6 +136,32 @@ edge-on circles retain their saved polylines and are reported. The saved
 preview was checked against the rendered PDF, but no printed reference PDF
 has been supplied for this drawing; marker appearance remains unverified.
 
+Four more supplied drawings now export locally:
+
+| Drawing | Populated views | Sheet, mm | Model curves | DXF/DWG entities |
+| --- | ---: | --- | ---: | ---: |
+| C15966 | 2 | 914.4 x 609.6 | 181 | 1,074 |
+| C15961 | 3 | 431.8 x 279.4 | 15 | 792 |
+| C15962 | 3 | 431.8 x 279.4 | 12 | 790 |
+| C15959 | 7 | 914.4 x 609.6 | 722 | 2,634 |
+
+C15966 uses a compact identity view transform. C15961/C15962 use the second
+observed tail variant. C15959 contains ten leading empty saved views plus
+section/detail views and hatching. Its repeated post-label section selection
+curves are excluded only after their declaration and every point match the
+preceding drawing array. Shaded assembly labels do not count as additional
+drawing views. The report records populated views, empty views, coordinate
+spaces and verified selection copies.
+
+Their rendered PDFs were compared with the embedded drawing previews, and
+all generated DWGs passed the local entity/geometry/text round-trip check.
+No printed PDF or DXF references have been supplied for these four files.
+C15961/C15962 retain two edge-on sampled curves each. C15959 retains 243
+unresolved spline samples and 116 other sampled curves; matching its supplied
+part does not make those exact. Its PHANTOM line style uses the standard
+dash pattern, whose original spacing remains unverified. A successful export
+does not establish full fidelity for arbitrary section/detail drawings.
+
 The DWG bridge adapts a temporary generated R2000 DXF for LibreDWG 0.14:
 it remaps typed handles for model space and omits optional object dictionaries
 and class definitions. These are exporter defaults, not source drawing data.
@@ -135,8 +171,8 @@ line pattern. Failure leaves PDF/DXF available and is recorded in the report.
 
 Document metadata, layers, line weights and portions of view metadata remain
 opaque. Only the observed single-sheet layout is supported. Multiple sheets,
-other native archive/command versions, section/detail views, tables and other
-font families are not validated. A structurally accepted export does not prove
+other native archive/command versions, arbitrary section/detail/table layouts
+and other font families are not validated. A structurally accepted export does not prove
 that all source content has been interpreted. The three matched source/reference
 drawings improve coverage but do not validate arbitrary drawing layouts.
 Limits are 64 MiB per input, bounded archive

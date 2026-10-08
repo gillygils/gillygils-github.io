@@ -96,6 +96,8 @@ def render_drawings():
             st.warning(f"{len(report['geometry']['unresolved_splines'])} spline curves are approximated by polylines. Add the matching part if available; see the report for details.")
         if report['geometry'].get('cached_polylines'):
             st.warning(f"{len(report['geometry']['cached_polylines'])} other curves use saved polyline samples. Review their accuracy; see the drawing report.")
+        if (report['geometry'].get('matching_part') or {}).get('unsupported_spline_candidates'):
+            st.warning('Some curves in the optional part are unsupported. Unresolved drawing curves retain their saved polylines; see the drawing report.')
         for message in report['exports']['pdf'].get('warnings', []):
             st.warning(message)
         if 'error' in report['exports'].get('dwg', {}):

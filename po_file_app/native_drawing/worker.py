@@ -31,6 +31,12 @@ def export_drawing(source, output, part=None, dwg=False, dwg_tools=None, font=No
               'sheet': scene['sheet'], 'sheet_size_mm': [v*1000 for v in scene['size_m']],
               'views': len(scene['views']), 'commands': scene['command_count'],
               'annotation_primitives': len(scene['primitives']),
+              'empty_saved_views': scene.get('empty_saved_views',0),
+              'display_tail_variant': scene.get('display_tail_variant'),
+              'view_geometry': [{'name':v['name'],'coordinate_space':v.get('coordinate_space','model'),
+                                 'curves':len(v['curves']),
+                                 'verified_selection_copies':v.get('verified_selection_copies',0)}
+                                for v in scene['views']],
               'opaque_prefix_bytes': scene['opaque_prefix_bytes'],
               'opaque_view_metadata_bytes': scene['opaque_view_metadata_bytes'],
               'limitations': scene['limitations'], 'geometry': metrics, 'exports': {}}

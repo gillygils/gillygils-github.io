@@ -73,12 +73,21 @@ class Commands:
                 if mode != 1 or size != 48 + 24 * vertices:
                     raise ValueError('Unsupported filled polygon layout.')
                 self.add('polygon', points=self.points(vertices))
+            elif kind == 5:
+                vertices = self.take('I')
+                if vertices < 2 or vertices % 2 or size != 48 + 24 * vertices:
+                    raise ValueError('Unsupported drawing line-pair array.')
+                points = self.points(vertices)
+                if self.take('I') != 0:
+                    raise ValueError('Unsupported drawing line-pair flags.')
+                for a,b in zip(points[::2],points[1::2]):
+                    self.add('line',start=a,end=b)
             elif kind == 9 and size == 60:
                 self.take('4I'); self.take('H'); self.take('f'); self.take('I'); self.take('Q')
-            elif kind == 12 and size in (70, 78):
+            elif kind == 12 and size in (70, 72, 78):
                 self.take('I'); self.take('H'); self.take('f'); self.take('Q')
                 self.style = self.string()
-                if self.style not in ('CONTINUOUS', 'CENTER'):
+                if self.style not in ('CONTINUOUS', 'CENTER', 'PHANTOM'):
                     raise ValueError('Unsupported drawing line style: ' + self.style)
             elif kind == 10 and size == 126:
                 height, angle = self.take('2d')
@@ -97,13 +106,19 @@ class Commands:
                 origin = self.points(1)[0]
                 flags, angle, reserved = self.take('I'), self.take('d'), self.take('I')
                 text = self.string()
-                version, vertices = self.take('HI')
-                if version != 1 or vertices != len(text) or vertices > 4096 or self.font is None:
+                version = self.take('H')
+                vertices = self.take('I') if version == 1 else 0
+                single_glyph = version == 0 and vertices == 0 and len(text) == 1
+                if ((not single_glyph and (version != 1 or vertices != len(text)))
+                        or vertices > 4096 or self.font is None):
                     raise ValueError('Unsupported text framing or missing font.')
-                advances = [self.take('f') for _ in range(vertices)]
+                # A single glyph has no relative glyph positions to recover.
+                advances = [0.] if single_glyph else [self.take('f') for _ in range(vertices)]
                 if any(not 0 <= value <= 1 for value in advances):
                     raise ValueError('Unsupported text advance.')
-                self.take('I'); self.take('d')
+                text_flags, text_scale = self.take('I'), self.take('d')
+                if single_glyph and (text_flags != 0 or text_scale != 1):
+                    raise ValueError('Unsupported single-glyph text suffix.')
                 if flags or reserved:
                     raise ValueError('Unsupported text flags.')
                 self.add('text', origin=origin, angle=angle, text=text,
@@ -120,7 +135,7 @@ class Commands:
                 tag, node, version, _ = self.take('4I')
                 if tag != 199 or version not in (1, 2):
                     raise ValueError('Unsupported annotation group.')
-                component = node == 7 and version == 2
+                component = node in (7,8) and version == 2
                 if component:
                     self.take('4I'); self.points(2); self.take('I')
                     self.string(); self.take('2I')

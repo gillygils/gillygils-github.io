@@ -134,7 +134,11 @@ def validate_roundtrip(source, roundtrip):
             raise ValueError('DWG round-trip changed a text font.')
     for line in original.linetypes:
         other = converted.linetypes.get(line.dxf.name)
-        if not same(line.pattern_tags.compile(), other.pattern_tags.compile()):
+        # Compiled patterns contain absolute lengths; retain the signs that
+        # distinguish drawn dashes from gaps in the saved CAD definition.
+        pattern = [(t.code,t.value) for t in line.pattern_tags.tags if t.code in (40,49)]
+        restored = [(t.code,t.value) for t in other.pattern_tags.tags if t.code in (40,49)]
+        if not same(pattern,restored):
             raise ValueError('DWG round-trip changed a line pattern.')
     return {'entity_count': len(after), 'roundtrip_verified': True, 'units': 'mm',
             'dwg_version': 'R2000', 'validation': 'LibreDWG to DXF plus ezdxf audit and entity comparison',
