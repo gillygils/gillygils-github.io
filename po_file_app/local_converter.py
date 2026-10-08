@@ -45,7 +45,7 @@ def convert_part(source, destination):
     if destination.exists():
         raise FileExistsError(f'Will not overwrite {destination}')
     if not converter_ready():
-        raise RuntimeError('Local converter is not installed. Run run_windows.bat again or converter/setup.py.')
+        raise RuntimeError('Optional vendor converter is not installed. Run install_convert3d_windows.bat or select the independent native reader.')
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='part-step-', dir=destination.parent) as temp:
         raw = Path(temp) / 'raw.step'

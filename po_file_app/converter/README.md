@@ -1,4 +1,4 @@
-# Local SolidWorks part conversion adapter
+# Optional legacy Convert3D adapter
 
 This adapter uses the Convert3D reader with permission reported by the repository owner. Third-party modules remain in a private ignored directory and are downloaded from public build URLs at setup. The public repository contains the adapter, URL/hash manifest, and setup instructions rather than third-party implementation copies. Internal-use permission is not assumed to authorize public redistribution of downloaded modules.
 
@@ -14,13 +14,12 @@ First supported acceptance case: C15999.SLDPRT, compared with the supplied Conve
 .\.venv\Scripts\python.exe converter\setup.py
 ```
 
-Run this from `po_file_app`, or use `run_windows.bat`. Setup downloads third-party modules and, if needed, portable Node; it does not submit CAD files.
+Run this from `po_file_app`, or use `install_convert3d_windows.bat`, then explicitly select **Convert3D adapter (optional legacy)** in the app. Normal `run_windows.bat` uses our independent reader and does not install this adapter. Setup downloads third-party modules and, if needed, portable Node; it does not submit CAD files.
 
 The October 8, 2026 vendor build refresh replaces removed build URLs and pins the current worker helpers and module hashes. C15999 was revalidated after the update. Future vendor deployments can remove these URLs again; retain the app’s verified `.converter` cache when updating.
 
-`setup.py --offline` validates the installed Node runtime and all cached module
-checksums without fetching missing files. `run_windows_offline.bat` uses this
-mode and skips pip entirely. Its first prerequisite is a completed installation
-of this app version; an empty cache cannot be prepared without the required
-components. This provides offline conversion with the existing vendor reader,
-not a completed independent geometry decoder.
+`setup.py --offline` validates this optional adapter's installed Node runtime
+and cached checksums without fetching missing files. The app launchers no
+longer invoke it: independent conversion and startup do not require a vendor
+cache. See [../native_part/README.md](../native_part/README.md) for the default
+independent reader and its supported format and geometry limits.

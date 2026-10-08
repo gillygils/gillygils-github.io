@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from local_converter import converter_ready, converter_diagnostics, convert_part
+from native_part.backend import native_diagnostics, convert_part_native
 from drawing_converter.backend import drawing_capability, convert_drawing
 from core import parse_po, find_files, validate_destination, copy_new, add_converted_exports
 
@@ -38,12 +38,22 @@ with st.sidebar:
     destination = st.text_input('Output parent folder', help='Choose a folder outside the source tree. Each run creates a new PO folder.')
     grouped = st.checkbox('Search only matching IDT folders (faster)', value=True, help='C13030 searches IDT C13000; C15732_001 searches IDT C15000. Turn off to search the entire source folder if your files use a different layout.')
     st.caption('Files on the source drive are copied. Existing output files are never overwritten.')
-    ready = converter_ready()
-    auto_step = st.checkbox('Convert copied part files to STEP locally', value=ready, disabled=not ready, help='Uses the permitted local reader. Currently requires one valid solid per part; unsupported files are reported as failures.')
+    step_provider = st.selectbox('STEP converter', ['Independent native reader (experimental)', 'Convert3D adapter (optional legacy)'])
+    if step_provider.startswith('Independent'):
+        diagnostics = native_diagnostics()
+        step_convert = convert_part_native
+        st.caption('Our Python reader runs locally with OpenCascade. No Convert3D, Node or internet is needed for conversion. Tested against C15999; other formats and geometry may be unsupported.')
+    else:
+        from local_converter import converter_diagnostics, convert_part
+        diagnostics = converter_diagnostics()
+        step_convert = convert_part
+        st.caption('Optional vendor reader. Install separately using install_convert3d_windows.bat. This selection uses Convert3D code.')
+    ready = diagnostics['ready']
+    auto_step = st.checkbox('Convert copied part files to STEP locally', value=ready, disabled=not ready, key=f'auto_step:{step_provider}', help='Exports the most recently saved configuration as one validated solid. Unsupported files are reported as failures. No automatic fallback to another converter.')
     if not ready:
         st.caption('The converter is not ready in this running app. Expand STEP converter diagnostics below.')
     with st.expander('STEP converter diagnostics'):
-        st.json(converter_diagnostics())
+        st.json(diagnostics)
     drawing_control, drawing_status = drawing_capability()
     auto_pdf = st.checkbox('Automatically print drawings to PDF (experimental)', value=False, disabled=drawing_control is None,
                            help='Uses your installed eDrawings and Microsoft Print to PDF. Requires a signed-in Windows desktop and a first-run test.')
@@ -161,7 +171,7 @@ if st.button('Create PO folder and process files', disabled=not ack):
                     results.append(conversion)
                     try:
                         st.write(f'{entry["part"]}: converting to STEP locally…')
-                        metrics = convert_part(source, target)
+                        metrics = step_convert(source, target)
                         conversion.update(copy=str(target), status='Converted STEP', validation=metrics)
                         existing_names.add(target.name.casefold())
                         st.write(f'{entry["part"]}: STEP created and solid geometry validated.')
@@ -218,8 +228,7 @@ if 'completed_job' in st.session_state:
     completed = st.session_state.completed_job
     st.subheader('Add drawing PDFs or other STEP exports (optional)')
     st.write('The selected files and any successful local STEP conversions are collected. Any failed or unprocessed drawings can still be printed manually in eDrawings. You can add these PDFs and any manually converted STEP files below.')
-    st.link_button('Open Convert3D for part → STEP', 'https://convert3d.org/convert')
-    st.markdown('1. On Convert3D, choose a copied `.sldprt` file from the output folder below and convert it to STEP. Download the result. Its public SolidWorks conversion code runs locally in the browser. Its privacy policy notes server processing for some other conversions.\n2. Open each copied `.slddrw` in **eDrawings**, choose **Print → Microsoft Print to PDF**, and include all required sheets. Check the PDF for missing views or cut-off content.\n3. Name each export after its exact PO part number, such as `C15999.step` or `C15999.pdf` (keep suffixes such as `_001`). Upload the exports here and click **Add exports and update ZIP**.')
+    st.markdown('1. For any unsupported parts, create STEP exports using another CAD tool if available.\n2. Open each copied `.slddrw` in **eDrawings**, choose **Print → Microsoft Print to PDF**, and include all required sheets. Check the PDF for missing views or cut-off content.\n3. Name each export after its exact PO part number, such as `C15999.step` or `C15999.pdf` (keep suffixes such as `_001`). Upload the exports here and click **Add exports and update ZIP**.')
     native_results = [r for r in completed['report']['results'] if r.get('copy') and Path(r['copy']).suffix.lower() in {'.sldprt', '.slddrw'}]
     if native_results:
         st.dataframe([{'Part': r['part'], 'File to convert': r['copy']} for r in native_results], hide_index=True, use_container_width=True)

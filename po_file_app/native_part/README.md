@@ -1,60 +1,97 @@
-# Independent SolidWorks part reader: STEP decoder work in progress
+# Independent SolidWorks part → STEP converter (experimental)
 
-This is the first stage of a converter that does **not** use Convert3D code,
-its downloads, JavaScript bundles, Node, web APIs or any installed CAD viewer.
-It uses our independent ZIP-shaped archive reader and Python's zlib library.
-It does not produce STEP yet and is not the app's production conversion path.
+The default app converter is independently authored Python: archive validation,
+configuration selection, binary entity decoding and topology reconstruction.
+OpenCascade (the free `cadquery-ocp` package) supplies the geometry kernel and
+STEP writer. This path does not execute Convert3D code, open its bundles,
+read `.converter`, run Node, download components or make web requests.
+Previously inspected vendor code and supplied files helped identify format
+layouts; they are not runtime dependencies or redistributed implementations.
 
-Run from `po_file_app`:
+## Run it
+
+In the app, leave **STEP converter** set to **Independent native reader
+(experimental)** and enable **Convert copied part files to STEP locally**.
+STEP exports are added to the flat PO folder and ZIP. Originals are retained.
+The processing report identifies `implementation: independent-native`, the
+saved configuration, decoded counts and round-trip geometry measurements.
+
+Or run from `po_file_app` after installing `requirements.txt`:
+
+```powershell
+.venv\Scripts\python.exe -m native_part.worker "Z:\IDT C15000\C15999.SLDPRT" "C:\PO-Exports\C15999.step"
+```
+
+The destination must not exist. The app adapter isolates conversion in a
+subprocess with a 120-second deadline. The worker validates a temporary STEP
+before publishing an exclusive output. Neither path overwrites existing files.
+Initial Python-package installation needs internet; subsequent conversion does
+not. You can remain connected to Z: throughout.
+
+## Supported saved state and geometry
+
+This first independently validated implementation supports the observed
+`SCH_3501210_35102_13006` binary schema and its explicit field patches. It reads
+the most recently saved configuration from the archive XML, rejects stale or
+ambiguous configurations, and checks all archive CRCs, decompression bounds,
+partition framing, entity identities and topology references.
+
+It requires one complete current base partition and one backward history
+stream whose current leaf mark matches the base's current/highest IDs.
+History metadata is decoded far enough to perform this check; general history
+payload decoding and delta replay are not implemented. This version-specific
+rule only accepts an already-current full partition. It refuses unmatched
+marks and forward edits instead of using an earlier body.
+
+Supported curves are lines, circles, and non-rational non-periodic 3D B-splines.
+Supported surfaces are planes, cylinders, cones and linear extrusions. Trim
+loops, paired oriented edge uses, endpoints, shell coverage and a single closed
+valid solid are checked. Coordinates use the observed supported metre-to-mm
+scale. STEP reimport must preserve face count, positive volume and bounding
+dimensions before publication. No tessellated display-mesh substitute is used.
+
+Unsupported schemas, unknown entities, spline surfaces, other geometry types,
+assemblies/transforms, multi-body parts, different unit scales, requested
+configuration selection and history states needing replay fail explicitly.
+Other SolidWorks versions and parts still need acceptance testing. A saved
+configuration match and valid solid alone cannot prove native-feature fidelity.
+There is no automatic fallback to Convert3D. The app's optional legacy reader
+must be separately installed and explicitly selected to use it.
+
+## Validation
+
+C15999 was converted using only this implementation and OpenCascade, with
+Python audit hooks blocking network connections, vendor imports and vendor
+cache access. Conversion does not use the supplied reference STEP as input.
+
+| Measurement | Independent export | Supplied reference |
+| --- | ---: | ---: |
+| Faces | 53 | 53 |
+| Dimensions, mm | 177.8 × 4.7625 × 146.05 | 177.8 × 4.7625 × 146.05 |
+| Volume, mm³ | 74032.5848864 | 74032.5848864 |
+| Surface area, mm² | 38604.1960504 | 38604.1960504 |
+
+The base partition decodes completely: 1,815 records, including 53 faces,
+141 edges and 86 vertices. The export reimports as one valid solid. Private CAD
+files and recovered proprietary data stay outside the public repository.
+OpenCascade solid subtraction against the validated reference found zero
+remaining volume in either direction at the comparison kernel's tolerances.
+Synthetic tests author a 10 mm cube archive and exercise full binary decoding,
+geometry construction and STEP import without private CAD assets; expected
+volume is 1,000 mm³ and area is 600 mm². Failure tests cover malformed topology,
+unsupported surfaces, incomplete streams, duplicate IDs, stale configurations,
+unmatched history marks, timeouts and cleanup.
+
+## Inspect unsupported files
+
+The separate inspection command remains available for decoder development:
 
 ```powershell
 .venv\Scripts\python.exe -m native_part "Z:\IDT C15000\C15999.SLDPRT" --output "C:\PO-Research\C15999-Part"
 ```
 
-The output directory must be new. The tool verifies archive entry CRCs,
-checks bounds and expansion limits, extracts supported configuration partition
-blocks, and writes their bytes plus an inspection report. Inputs stay unchanged.
-Opaque framing gaps and tails remain explicitly reported as uninterpreted.
-
-On C15999.SLDPRT, the independent reader recovered 45 verified archive entries
-and two framed Parasolid streams from configuration archive ID 2:
-
-| Stream | Kind | Recovered bytes |
-| --- | --- | ---: |
-| 0 | Base partition | 63,271 |
-| 1 | Deltas | 40,751 |
-
-Both streams report modeller version 3501210 and schema
-`SCH_3501210_35102_13006`. Extraction took about 0.03 seconds on the cloud
-machine, excluding Python startup. This is **extraction timing**, not a complete
-STEP conversion benchmark. A valid compressed stream and Parasolid header do
-not establish usable or complete geometry. The recovered files are research
-artifacts, not validated exports of the current body.
-
-The bounded binary decoder now reads compact/extended references, scalar fields
-and the observed partition/body schema patches. On the supplied base stream it
-recovers partition entity 1 and body entity 2, including shell reference 6,
-surface reference 7, edge reference 11 and vertex reference 12. It stops at
-unsupported entity type 80 at byte 674. The delta stream stops at unsupported
-type 3 at byte 99. This is partial entity decoding, not a reconstructed shape;
-the report includes the stopping reason and byte offset.
-
-Remaining required stages:
-
-1. Decode Parasolid schemas and entity records with bounded parsing and stable
-   reference identities, including version-specific schema changes.
-2. Apply delta records to base partitions in saved order. Determine the active
-   configuration and units. Do not treat an earlier saved body as current.
-3. Reconstruct bodies, shells, faces, trim loops, oriented edges and vertices;
-   decode their analytic and spline curves/surfaces.
-4. Build OpenCascade boundary-representation shapes and export STEP. Refuse
-   unsupported geometry instead of replacing it with a tessellated display mesh.
-5. Validate configuration, dimensions, volume, topology and shape fidelity against
-   reference exports before exposing this path in PO packaging.
-
-The existing permitted Convert3D adapter remains available in the app while
-these stages are unfinished. This independent reader does not silently fall
-back to it and reports `step_conversion_supported: false` in its output.
-Original parts, recovered proprietary data and reference exports are kept
-outside the public repository; only implementation and synthetic tests are
-committed.
+It writes bounded recovered `.x_b` streams and a JSON record report into a new
+directory. It does not build or export geometry; `step_conversion_supported:
+false` in that inspection report describes the inspection operation, not the
+worker's capabilities. Partial history records include the stopping reason.
+Inspecting a supported header alone is not proof of a usable current solid.

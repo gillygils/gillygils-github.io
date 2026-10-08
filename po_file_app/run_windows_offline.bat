@@ -12,8 +12,7 @@ if errorlevel 1 (
   echo Required app dependencies are missing. Run run_windows.bat once while connected.
   goto failed
 )
-".venv\Scripts\python.exe" converter\setup.py --offline
-if errorlevel 1 goto failed
+echo Independent native STEP converter ready. No vendor cache or internet is required.
 ".venv\Scripts\python.exe" -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --browser.gatherUsageStats false
 if errorlevel 1 goto failed
 exit /b 0

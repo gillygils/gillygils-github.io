@@ -1,1 +1,1 @@
-"""Independent SolidWorks part-reader research; STEP geometry decoding pending."""
+"""Independent, experimental SolidWorks part reader and native STEP conversion."""
