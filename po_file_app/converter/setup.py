@@ -1,4 +1,5 @@
 """Install a checksum-verified private copy of the permitted local reader."""
+import argparse
 import hashlib
 import io
 import json
@@ -28,12 +29,14 @@ def node_executable():
     return str(private) if private.is_file() else shutil.which('node')
 
 
-def ensure_node():
+def ensure_node(offline=False):
     executable = node_executable()
     if executable:
         version = subprocess.check_output([executable, '--version'], text=True).strip()
         if int(version.lstrip('v').split('.')[0]) >= 20:
             return executable
+    if offline:
+        raise RuntimeError('Offline startup requires an installed Node.js 20+ runtime. Run the normal installer once while connected.')
     if os.name != 'nt':
         raise RuntimeError('Install Node.js 20 or newer to run local part conversion.')
     machine = platform.machine().lower()
@@ -59,9 +62,9 @@ def ensure_node():
     return str(runtime / 'node.exe')
 
 
-def setup():
+def setup(offline=False):
     print('Preparing local part converter…', flush=True)
-    executable = ensure_node()
+    executable = ensure_node(offline=offline)
     manifest = json.loads(MANIFEST.read_text())
     destination = APP / '.converter' / 'modules'
     destination.mkdir(parents=True, exist_ok=True)
@@ -69,6 +72,9 @@ def setup():
         target = destination / file['name']
         if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == file['sha256']:
             continue
+        if offline:
+            raise RuntimeError('Offline converter component is missing or fails its checksum: ' + file['name']
+                               + '. Run run_windows.bat once while connected to install this app version.')
         print('Downloading converter component ' + file['name'], flush=True)
         try:
             data = fetch(file['url'])
@@ -91,8 +97,11 @@ def setup():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--offline', action='store_true', help='Verify the installed runtime and modules without downloading anything.')
+    args = parser.parse_args()
     try:
-        setup()
+        setup(offline=args.offline)
     except Exception as exc:
         print('Local STEP converter setup failed: ' + str(exc), file=sys.stderr, flush=True)
         sys.exit(1)

@@ -49,3 +49,19 @@ Inspection of Convert3D's public JavaScript on October 7, 2026 found a local Sol
 The repository owner confirmed permission to integrate the reader. Converter code is downloaded privately into ignored `.converter/modules`; it is not redistributed in this GitHub repository. The adapter uses pinned SHA-256 checksums and preserves the downloaded files. Do not publish the downloaded directory unless your permission covers redistribution. The [privacy policy](https://convert3d.org/about/privacy) notes server processing for some other conversions; this adapter runs the SolidWorks STEP path locally and refuses network fetches and dynamic components.
 
 If Convert3D removes the pinned build URLs or alters those files, setup fails visibly instead of bypassing verification. The app remains available for copying and guided conversion when optional converter setup fails. See [converter/README.md](converter/README.md) for installation and architecture details.
+
+## Offline startup after installation
+
+Once the current app version has been installed using `run_windows.bat`, use
+`run_windows_offline.bat` to start without installing packages or downloading
+converter files. Keep both `.venv` and `.converter` in the app directory. The
+launcher verifies dependencies, Node and pinned converter checksums and fails
+with a clear message if anything is missing. It disables Streamlit usage
+telemetry. Source files and output remain local; STEP conversion does not send
+CAD data to the internet. Updating to a version with different pinned modules
+requires a connected setup once before its offline launcher can run.
+
+This offline workflow still uses the installed permitted Convert3D reader. The
+independent `native_part` decoder is research in progress and does not produce
+STEP yet. Offline operation and independence from vendor code are separate
+capabilities.

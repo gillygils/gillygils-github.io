@@ -31,6 +31,14 @@ STEP conversion benchmark. A valid compressed stream and Parasolid header do
 not establish usable or complete geometry. The recovered files are research
 artifacts, not validated exports of the current body.
 
+The bounded binary decoder now reads compact/extended references, scalar fields
+and the observed partition/body schema patches. On the supplied base stream it
+recovers partition entity 1 and body entity 2, including shell reference 6,
+surface reference 7, edge reference 11 and vertex reference 12. It stops at
+unsupported entity type 80 at byte 674. The delta stream stops at unsupported
+type 3 at byte 99. This is partial entity decoding, not a reconstructed shape;
+the report includes the stopping reason and byte offset.
+
 Remaining required stages:
 
 1. Decode Parasolid schemas and entity records with bounded parsing and stable

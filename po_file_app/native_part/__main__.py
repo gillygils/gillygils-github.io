@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from native_drawing.archive import read_archive
 from .partition import recover_blocks, parasolid_header
+from .entities import decode_prefix
 
 
 PARTITION = re.compile(r'(^|/)Config-(\d+)-Partition$', re.I)
@@ -34,7 +35,8 @@ def inspect(source, output):
             else:
                 filename = None
             streams.append({key: value for key, value in block.items() if key != 'data'} |
-                           {'parasolid_header': header, 'extracted_file': filename})
+                           {'parasolid_header': header, 'extracted_file': filename,
+                            'decoded_entity_prefix': decode_prefix(payload) if header else None})
         partitions.append({'entry': name, 'configuration_archive_id': match[2],
                            'blocks': streams, 'opaque_gaps': result['opaque_gaps'],
                            'unparsed_tail_bytes': result['unparsed_tail_bytes']})

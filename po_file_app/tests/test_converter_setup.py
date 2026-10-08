@@ -49,3 +49,20 @@ class ConverterSetupTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,'latest app from GitHub'):setup.setup()
             self.assertEqual(existing.read_bytes(),b'verified')
             self.assertFalse((modules/'removed.js').exists())
+
+    def test_offline_setup_verifies_cache_and_never_fetches(self):
+        import json
+        with tempfile.TemporaryDirectory() as temp:
+            app=Path(temp)
+            modules=app/'.converter'/'modules';modules.mkdir(parents=True)
+            cached=modules/'cached.js';cached.write_bytes(b'cached')
+            manifest=app/'manifest.json'
+            manifest.write_text(json.dumps({'files':[{'name':'cached.js','url':'https://example.invalid',
+                                                     'sha256':hashlib.sha256(b'cached').hexdigest()}]}))
+            with patch.object(setup,'APP',app),patch.object(setup,'MANIFEST',manifest),patch.object(setup,'ensure_node',return_value='node'),patch.object(setup,'fetch',side_effect=AssertionError('offline download')) as fetch:
+                setup.setup(offline=True)
+                cached.write_bytes(b'corrupt')
+                with self.assertRaisesRegex(RuntimeError,'checksum'):setup.setup(offline=True)
+                cached.unlink()
+                with self.assertRaisesRegex(RuntimeError,'missing'):setup.setup(offline=True)
+                fetch.assert_not_called()
