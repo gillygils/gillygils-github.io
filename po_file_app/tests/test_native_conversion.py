@@ -81,9 +81,9 @@ def encode(kind, value):
     return struct.pack('>'+{'u':'B','c':'B','l':'B','n':'h','w':'h','d':'i','f':'d'}[kind],value)
 
 
-def binary_stream(records, kind='partition'):
-    description = f': TRANSMIT FILE ({kind}) created by modeller version 3501210'.encode()
-    schema = b'SCH_3501210_35102_13006'
+def binary_stream(records, kind='partition', schema='SCH_3501210_35102_13006'):
+    description = f': TRANSMIT FILE ({kind}) created by modeller version {schema.split("_")[1]}'.encode()
+    schema = schema.encode('ascii')
     data = b'PS\0\0'+struct.pack('>H',len(description))+description+struct.pack('>I',len(schema))+schema+struct.pack('>Hi',231,0)
     seen = set()
     for record in records:
@@ -99,12 +99,12 @@ def binary_stream(records, kind='partition'):
     return data+b'\0\1\0\1'
 
 
-def sample_part(path):
-    base = binary_stream(cube_records())
+def sample_part(path, schema='SCH_3501210_35102_13006', history_schema=None):
+    base = binary_stream(cube_records(), schema=schema)
     history = binary_stream([
         {'type':3,'identity':100,'fields':{'current_pmark':101,'highest_id':10}},
         {'type':4,'identity':101,'fields':{'id':9,'delta_is_forward':0,'first_following':0}},
-    ],'deltas')
+    ],'deltas',schema=history_schema or schema)
     partition = b''
     for payload in (base,history):
         compressed = zlib.compress(payload)
@@ -151,22 +151,46 @@ class NativeConversionTests(unittest.TestCase):
             self.assertAlmostEqual(result['volume_mm3'],1000,places=6)
             self.assertTrue(output.is_file())
 
+    def test_compatible_build_converts_and_reports_actual_schema(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source,output = Path(temp)/'cube.sldprt',Path(temp)/'cube.step'
+            schema = 'SCH_3501256_35102_13006'
+            sample_part(source,schema=schema)
+            result = convert_part_native(source,output)
+            self.assertEqual(result['schema'],schema)
+            self.assertAlmostEqual(result['volume_mm3'],1000,places=6)
+            self.assertTrue(result['single_valid_solid'])
+
+    def test_unknown_layout_or_mismatched_history_is_not_published(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source,output = Path(temp)/'cube.sldprt',Path(temp)/'cube.step'
+            for schema in ('SCH_3601256_35102_13006','SCH_3501256_35103_13006','SCH_3501256_35102_13007'):
+                sample_part(source,schema=schema)
+                with self.assertRaisesRegex(UnsupportedPart,schema):convert(source,output)
+                self.assertFalse(output.exists())
+            sample_part(source,history_schema='SCH_3501256_35102_13006')
+            with self.assertRaisesRegex(UnsupportedPart,'schema mismatch'):convert(source,output)
+            self.assertFalse(output.exists())
+
     def test_app_defaults_to_native_and_packages_success_while_retaining_failures(self):
         from streamlit.testing.v1 import AppTest
         from core import Item
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)/'source'
-            group = root/'IDT C15000'
+            group = root/'IDT C04000'
             group.mkdir(parents=True)
-            source = group/'C15999.sldprt'
-            sample_part(source)
+            source = group/'C04571_001.sldprt'
+            sample_part(source,schema='SCH_3501256_35102_13006')
             original = source.read_bytes()
-            (group/'C15998.sldprt').write_bytes(b'unsupported-part')
+            second = group/'C04571_002.sldprt'
+            sample_part(second)
+            second_original = second.read_bytes()
+            (group/'C04572_002.sldprt').write_bytes(b'unsupported-part')
             output = Path(temp)/'output'
             upload = io.BytesIO(b'synthetic-po')
             def uploader(*args,**kwargs):
                 return [] if kwargs.get('accept_multiple_files') else upload
-            with patch('streamlit.file_uploader',side_effect=uploader), patch('core.parse_po',return_value=('999',[Item(1,'1','PC','C15999'),Item(2,'1','PC','C15998')])), patch('local_converter.converter_diagnostics',side_effect=AssertionError('Vendor readiness was checked')):
+            with patch('streamlit.file_uploader',side_effect=uploader), patch('core.parse_po',return_value=('999',[Item(1,'1','PC','C04571_001'),Item(2,'1','PC','C04571_002'),Item(3,'1','PC','C04572_002')])), patch('local_converter.converter_diagnostics',side_effect=AssertionError('Vendor readiness was checked')):
                 app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=20).run()
                 provider = next(s for s in app.selectbox if s.label=='STEP converter')
                 self.assertEqual(provider.value,'Independent native reader (experimental)')
@@ -181,14 +205,19 @@ class NativeConversionTests(unittest.TestCase):
                 self.assertFalse(app.exception)
                 job = app.session_state['completed_job']
                 with zipfile.ZipFile(job['archive']) as archive:
-                    self.assertEqual(archive.read('C15999.sldprt'),original)
-                    self.assertEqual(archive.read('C15998.sldprt'),b'unsupported-part')
-                    self.assertIn('C15999.step',archive.namelist())
-                    self.assertNotIn('C15998.step',archive.namelist())
+                    self.assertEqual(archive.read('C04571_001.sldprt'),original)
+                    self.assertEqual(archive.read('C04571_002.sldprt'),second_original)
+                    self.assertEqual(archive.read('C04572_002.sldprt'),b'unsupported-part')
+                    self.assertIn('C04571_001.step',archive.namelist())
+                    self.assertIn('C04571_002.step',archive.namelist())
+                    self.assertNotIn('C04571.step',archive.namelist())
+                    self.assertNotIn('C04572_002.step',archive.namelist())
                     report = json.loads(archive.read('report.json'))
                 conversions = [r for r in report['results'] if r['status']=='Converted STEP']
-                self.assertEqual(len(conversions),1)
-                self.assertEqual(conversions[0]['validation']['implementation'],'independent-native')
+                self.assertEqual(len(conversions),2)
+                self.assertTrue(all(r['validation']['implementation']=='independent-native' for r in conversions))
+                self.assertEqual({r['validation']['schema'] for r in conversions},
+                                 {'SCH_3501256_35102_13006','SCH_3501210_35102_13006'})
                 self.assertTrue(any(r['status'].startswith('Conversion failed:') for r in report['results']))
 
     def test_bad_loop_or_unsupported_surface_cannot_be_exported(self):

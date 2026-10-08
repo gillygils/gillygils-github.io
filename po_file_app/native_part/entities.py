@@ -4,8 +4,20 @@ Complete full partitions and partial history metadata are supported. Stop at
 the first unsupported entity rather than scanning for plausible records.
 """
 import math
+import re
 import struct
 from .partition import parasolid_header
+
+
+# The writer build (first component) varies between saved parts. Its 35.1
+# patch revisions share the observed 35102/13006 on-stream layout family.
+# Entity schema patches still have to decode completely; this does not allow
+# arbitrary Parasolid releases, layout revisions or unknown entity types.
+SCHEMA_FAMILY = re.compile(r'SCH_3501[0-9]{3}_35102_13006\Z')
+
+
+def supported_schema(schema):
+    return SCHEMA_FAMILY.fullmatch(schema) is not None
 
 
 class DecodeError(ValueError):
@@ -151,9 +163,11 @@ def read_schema(cursor, inherited):
 
 def decode_prefix(data):
     header = parasolid_header(data)
-    report = {'complete':False, 'geometry_reconstructed':False, 'records':[]}
-    if not header or header['schema'] != 'SCH_3501210_35102_13006':
-        return report | {'stopped_reason':'Unsupported Parasolid binary schema.', 'stopped_offset':0}
+    schema = header['schema'] if header else None
+    report = {'schema':schema, 'complete':False, 'geometry_reconstructed':False, 'records':[]}
+    if not header or not supported_schema(schema):
+        return report | {'stopped_reason':f'Unsupported Parasolid binary schema: {schema or "unrecognized header"}. '
+                         'Supported layout family: SCH_3501xxx_35102_13006.', 'stopped_offset':0}
     cursor = Cursor(data,header['header_bytes'])
     schemas = {}
     identities = set()

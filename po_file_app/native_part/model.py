@@ -99,6 +99,8 @@ def load_model(source):
     base = bases[0]
     if not base['complete']:
         raise UnsupportedPart('Unsupported part geometry: ' + base.get('stopped_reason', 'incomplete entity stream'))
+    if histories[0]['schema'] != base['schema']:
+        raise UnsupportedPart(f'Base/history schema mismatch: {base["schema"]} / {histories[0]["schema"]}.')
     root = only_record(base, 101)
     body = only_record(base, 12)
     state = body['fields']
@@ -112,5 +114,5 @@ def load_model(source):
     history = check_history(base, histories[0])
     return base, {'implementation': 'independent-native', 'configuration': name,
                   'configuration_archive_id': config_id,
-                  'schema': 'SCH_3501210_35102_13006',
+                  'schema': base['schema'],
                   'decoded_entities': len(base['records']), **history}

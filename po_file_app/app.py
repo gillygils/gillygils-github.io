@@ -42,7 +42,7 @@ with st.sidebar:
     if step_provider.startswith('Independent'):
         diagnostics = native_diagnostics()
         step_convert = convert_part_native
-        st.caption('Our Python reader runs locally with OpenCascade. No Convert3D, Node or internet is needed for conversion. Tested against C15999; other formats and geometry may be unsupported.')
+        st.caption('Our Python reader runs locally with OpenCascade. No Convert3D, Node or internet is needed for conversion. Verified with C15999 and C04571_001/_002; other formats and geometry may be unsupported.')
     else:
         from local_converter import converter_diagnostics, convert_part
         diagnostics = converter_diagnostics()

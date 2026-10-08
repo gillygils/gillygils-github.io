@@ -30,14 +30,19 @@ not. You can remain connected to Z: throughout.
 
 ## Supported saved state and geometry
 
-This first independently validated implementation supports the observed
-`SCH_3501210_35102_13006` binary schema and its explicit field patches. It reads
+This implementation supports compatible writer build revisions in the
+`SCH_3501xxx_35102_13006` binary layout family and its explicit field patches.
+Builds 3501210 and 3501256 have been verified against supplied parts. The writer
+build can vary; layout components 35102/13006, entity framing, complete decoding
+and all geometry checks are still required. Other release/layout families are
+rejected with the exact detected schema in the error. It reads
 the most recently saved configuration from the archive XML, rejects stale or
 ambiguous configurations, and checks all archive CRCs, decompression bounds,
 partition framing, entity identities and topology references.
 
 It requires one complete current base partition and one backward history
 stream whose current leaf mark matches the base's current/highest IDs.
+The base and history must report matching schemas.
 History metadata is decoded far enough to perform this check; general history
 payload decoding and delta replay are not implemented. This version-specific
 rule only accepts an already-current full partition. It refuses unmatched
@@ -76,6 +81,13 @@ The base partition decodes completely: 1,815 records, including 53 faces,
 files and recovered proprietary data stay outside the public repository.
 OpenCascade solid subtraction against the validated reference found zero
 remaining volume in either direction at the comparison kernel's tolerances.
+The supplied C04571_001 (build 3501256) and C04571_002 (build 3501210) also
+convert into valid 15-face solids. Their bounding dimensions are 647.7 × 31.75 ×
+9.525 mm. Calculated volume is 191176.322102 mm³, agreeing with a separate
+analytic calculation of the bar, two rounded corners, two chamfers, circular
+hole and oblong slot. No reference STEP was supplied for these two parts.
+The app packages their exact suffixed STEP filenames separately. CAD assets
+remain outside the repository; regression tests use authored cube archives.
 Synthetic tests author a 10 mm cube archive and exercise full binary decoding,
 geometry construction and STEP import without private CAD assets; expected
 volume is 1,000 mm³ and area is 600 mm². Failure tests cover malformed topology,
