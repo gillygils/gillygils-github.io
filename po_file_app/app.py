@@ -6,6 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 from native_part.backend import native_diagnostics, convert_part_native
+from native_part import ASSEMBLY_STEP_UNSUPPORTED
 from drawing_converter.backend import drawing_capability, convert_drawing
 from core import parse_po, find_files, validate_destination, copy_new, add_converted_exports
 
@@ -42,7 +43,7 @@ with st.sidebar:
     if step_provider.startswith('Independent'):
         diagnostics = native_diagnostics()
         step_convert = convert_part_native
-        st.caption('Our Python reader runs locally with OpenCascade. No Convert3D, Node or internet is needed for conversion. Verified with 11 supplied parts; other formats and geometry may be unsupported.')
+        st.caption('Our Python reader runs locally with OpenCascade. No Convert3D, Node or internet is needed for conversion. Verified with 13 supplied parts, including sheet-metal examples; other formats and geometry may be unsupported.')
     else:
         from local_converter import converter_diagnostics, convert_part
         diagnostics = converter_diagnostics()
@@ -163,11 +164,16 @@ def render_po():
                 if auto_step:
                     existing_names = {p.name.casefold() for p in job.iterdir()}
                     for entry in list(results):
-                        if entry['status'] != 'Copied' or Path(entry.get('copy', '')).suffix.lower() != '.sldprt':
+                        if entry['status'] != 'Copied' or Path(entry.get('copy', '')).suffix.lower() not in {'.sldprt','.sldasm'}:
                             continue
                         source = Path(entry['copy'])
                         if any((source.stem + extension).casefold() in existing_names for extension in ('.step', '.stp')):
                             st.write(f'{entry["part"]}: existing STEP was copied; conversion skipped.')
+                            continue
+                        if source.suffix.lower()=='.sldasm':
+                            results.append({'part':entry['part'],'source':str(source),'copy':'',
+                                            'status':'STEP conversion skipped: assembly unsupported','details':ASSEMBLY_STEP_UNSUPPORTED})
+                            st.warning(f'{entry["part"]}: {ASSEMBLY_STEP_UNSUPPORTED}')
                             continue
                         target = job / (source.stem + '.step')
                         conversion = {'part': entry['part'], 'source': str(source), 'copy': '', 'status': ''}

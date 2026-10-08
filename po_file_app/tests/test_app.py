@@ -15,6 +15,38 @@ from core import Item
 
 
 class AppTests(unittest.TestCase):
+    def test_assembly_skip_is_reported_and_existing_step_is_retained(self):
+        from test_sheetmetal_geometry import arched_box_records
+        from test_native_conversion import sample_part
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/'source';group=root/'IDT C16000';group.mkdir(parents=True)
+            (group/'C16210.sldasm').write_bytes(b'assembly-with-external-references')
+            (group/'C16211.sldasm').write_bytes(b'other-assembly')
+            existing=b'ISO-10303-21;\nEND-ISO-10303-21;'
+            (group/'C16211.step').write_bytes(existing)
+            sample_part(group/'C16231.sldprt',records=arched_box_records())
+            def uploader(*args,**kwargs):
+                return [] if kwargs.get('accept_multiple_files') else io.BytesIO(b'po')
+            with patch('streamlit.file_uploader',side_effect=uploader),patch('core.parse_po',return_value=('1926',[
+                    Item(1,'1','PC','C16210'),Item(2,'1','PC','C16211'),Item(3,'1','PC','C16231')])):
+                app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=20).run()
+                app.sidebar.text_input[0].set_value(str(root))
+                app.sidebar.text_input[1].set_value(str(Path(temp)/'output'))
+                next(b for b in app.button if b.label=='Search source folder').click().run()
+                next(c for c in app.checkbox if c.label.startswith('I checked')).check().run()
+                next(b for b in app.button if b.label=='Create PO folder and process files').click().run()
+                self.assertFalse(app.exception)
+                job=app.session_state['completed_job'];results=job['report']['results']
+                skipped=[r for r in results if r['status']=='STEP conversion skipped: assembly unsupported']
+                self.assertEqual([r['part'] for r in skipped],['C16210'])
+                self.assertIn('referenced component files',skipped[0]['details'])
+                self.assertTrue(any(r['part']=='C16231' and r['status']=='Converted STEP' for r in results))
+                with ZipFile(job['archive']) as archive:
+                    self.assertEqual(archive.read('C16210.sldasm'),b'assembly-with-external-references')
+                    self.assertEqual(archive.read('C16211.step'),existing)
+                    self.assertIn('C16231.step',archive.namelist())
+                    self.assertNotIn('C16210.step',archive.namelist())
+
     def test_process_po_packages_c_and_m_files_using_real_parser(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/'source'

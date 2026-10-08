@@ -11,6 +11,7 @@ class ShapeError(ValueError):
 
 
 def reconstruct_body(report, body_id):
+    from OCP.Geom import Geom_ToroidalSurface
     from OCP.gp import gp_Pnt, gp_Dir
     from OCP.GeomAPI import GeomAPI_ProjectPointOnCurve
     from OCP.BRepBuilderAPI import (BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire,
@@ -179,7 +180,10 @@ def reconstruct_body(report, body_id):
         if any(singular(loop) for loop in loops):
             maker=cone_with_apex(surf,loops)
         else:
-            maker=BRepBuilderAPI_MakeFace(surf,wire(loops[0]),True)
+            # On a doubly periodic torus, forcing the first loop to "inside"
+            # can replace the native bend with its complementary long arc.
+            # Preserve the decoded loop direction when selecting that strip.
+            maker=BRepBuilderAPI_MakeFace(surf,wire(loops[0]),not isinstance(surf,Geom_ToroidalSurface))
             for loop in loops[1:]:maker.Add(wire(loop))
         if not maker.IsDone():raise ShapeError(f'Cannot build face {identity}.')
         fixer=ShapeFix_Face(maker.Face());fixer.SetPrecision(1e-6);fixer.SetMaxTolerance(1e-5);fixer.Perform()

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .model import load_model
 from .shape import reconstruct
+from . import ASSEMBLY_STEP_UNSUPPORTED
 
 
 def export_validated(solid, output, expected_faces, expected_bodies=1):
@@ -74,6 +75,8 @@ def export_validated(solid, output, expected_faces, expected_bodies=1):
 def convert(source, output):
     from core import copy_new
     source, output = Path(source), Path(output)
+    if source.suffix.lower()=='.sldasm':
+        raise ValueError(ASSEMBLY_STEP_UNSUPPORTED)
     if source.suffix.lower() != '.sldprt' or not source.is_file():
         raise ValueError('Select an existing .sldprt file.')
     if output.exists():

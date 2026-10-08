@@ -63,9 +63,13 @@ def convert_batch(inputs, converter, progress=None):
 
 def render_standalone(converter, ready, provider):
     import streamlit as st
+    from native_part import ASSEMBLY_STEP_UNSUPPORTED
     st.subheader('Convert parts to STEP')
     st.write('Upload one or more SolidWorks part files, convert them locally, then download the STEP files. No purchase order is needed.')
     st.caption('Choose files from your PC or Z: drive. The most recently saved configuration is exported, including all supported solid bodies. Your browser chooses where downloads are saved.')
+    st.caption('Sheet-metal parts export their saved 3D configuration. This does not calculate a new flat pattern.')
+    with st.expander('About assembly files (.sldasm)'):
+        st.write(ASSEMBLY_STEP_UNSUPPORTED)
     uploads=st.file_uploader('SolidWorks part files',type=['sldprt'],accept_multiple_files=True,key='standalone_parts')
     try:
         inputs=prepare_uploads(uploads or [])

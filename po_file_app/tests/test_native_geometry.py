@@ -107,7 +107,7 @@ class NativeGeometryTests(unittest.TestCase):
                 self.assertAlmostEqual(actual,expected,places=5)
             # Corrupting either body must prevent a partial export.
             broken=two_cubes()
-            next(r for r in reversed(broken) if r['type']==50)['type']=124
+            next(r for r in reversed(broken) if r['type']==50)['type']=53
             sample_part(source,records=broken)
             other=Path(temp)/'partial.step'
             with self.assertRaisesRegex(ValueError,'Unsupported surface'):convert(source,other)

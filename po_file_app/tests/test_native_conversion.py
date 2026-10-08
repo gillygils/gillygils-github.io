@@ -234,7 +234,7 @@ class NativeConversionTests(unittest.TestCase):
         fin['fields']['forward'] = fin['identity']
         with self.assertRaises(ShapeError):reconstruct({'complete':True,'records':records})
         records = cube_records()
-        next(r for r in records if r['type']==50)['type'] = 124
+        next(r for r in records if r['type']==50)['type'] = 53
         with self.assertRaisesRegex(ShapeError,'Unsupported surface'):reconstruct({'complete':True,'records':records})
 
     def test_decoder_requires_terminal_marker_and_unique_identity(self):

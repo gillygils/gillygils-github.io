@@ -53,14 +53,32 @@ rule only accepts an already-current full partition. It refuses unmatched
 marks and forward edits instead of using an earlier body.
 
 Supported curves are lines, circles, non-rational non-periodic 3D B-splines,
-and supported analytic surface-intersection curves. The latter are computed
+supported 2D parameter splines lifted onto surfaces, and supported
+surface-intersection curves. The latter are computed
 from the two decoded surfaces; native chart points identify the branch and
 direction rather than becoming a polyline approximation. Closed intersection
 splines are made periodic without changing sampled geometry so trims crossing
-the parameter seam select the correct arc. Intersections requiring multiple
-kernel segments or an ambiguous branch are refused.
+the parameter seam select the correct arc. Kernel segments split at surface
+parameter seams can be joined when their endpoints define one unambiguous
+chain or cycle. Joining must preserve the segment geometry. Branched junctions
+remain separate, and ambiguous native branch selection is refused.
 
-Supported surfaces are planes, cylinders, cones and linear extrusions. A full
+Supported surfaces are planes, cylinders, cones, linear extrusions,
+non-degenerate ring tori and non-rational non-periodic 3D B-spline surfaces.
+Spline surfaces validate their two knot arrays, multiplicities, dimensions
+and control-grid ordering before construction. Toroidal trim loops retain
+native winding, preserving either the short or long arc specified by the
+source. Forcing a torus loop to the kernel's default inside orientation can
+otherwise select the complementary bend despite producing a valid solid.
+
+On-surface parameter curves support planes, cylinders, cones, ring tori and
+supported B-spline surfaces, with explicit UV unit scaling for each. Their
+non-rational non-periodic 2D splines are lifted by OpenCascade into 3D splines
+at a maximum reported error of 0.0000001 mm, then checked against the native
+surface positions. Alternate-original curves and other parameter scalings
+remain unsupported. These are smooth CAD curves, not display polylines.
+
+A full
 cone apex trim is supported when its singular vertex matches the analytic
 apex and its circular boundary is coaxial with the correct radius. Other
 singular boundary forms remain unsupported. Embedded schema definitions and
@@ -74,7 +92,7 @@ scale. STEP reimport must preserve body and face counts, each body's positive
 volume, total volume, surface area and bounding dimensions before publication.
 No tessellated display-mesh substitute is used.
 
-Unsupported schemas, unknown entities, spline surfaces, other geometry types,
+Unsupported schemas, unknown entities, rational/periodic spline surfaces, other geometry types,
 assemblies/transforms, sheet bodies, different unit scales, requested
 configuration selection and history states needing replay fail explicitly.
 Other SolidWorks versions and parts still need acceptance testing. A saved
@@ -107,7 +125,7 @@ analytic calculation of the bar, two rounded corners, two chamfers, circular
 hole and oblong slot. No reference STEP was supplied for these two parts.
 The app packages their exact suffixed STEP filenames separately. CAD assets
 remain outside the repository; regression tests use authored cube archives.
-All eight additional supplied parts also pass independent conversion:
+All ten additional supplied parts also pass independent conversion:
 
 | Part | Faces | Solid bodies retained |
 | --- | ---: | ---: |
@@ -119,18 +137,28 @@ All eight additional supplied parts also pass independent conversion:
 | C13228 | 17 | 1 |
 | C00128_002 | 33 | 2 |
 | C04045-001 | 50 | 1 |
+| C16231 | 114 | 7 |
+| C16663 | 119 | 8 |
 
 The tests reimport all exports as valid solids and compare body counts, face
 counts, volume, area and dimensions with reconstructed geometry. C04045-001
-uses its most-recent `Default<As Machined>` configuration. No reference STEP
-was supplied for these eight parts, so these checks establish structural and
+uses its most-recent `Default<As Machined>` configuration, as do C16231 and
+C16663. C16231 decodes all 3,253 records, including spline bend transition
+surfaces and cylindrical surface curves. C16663 decodes all 3,619 records,
+including toroidal bends and split intersection curves. Its two bent round
+rods also agree with a separate analytic length-and-cross-section volume
+calculation. No reference STEP was supplied for these ten parts, so these checks establish structural and
 round-trip consistency, not independent proof of all native-feature fidelity.
-All 11 supplied parts pass; arbitrary SolidWorks files are not guaranteed.
+All 13 supplied part files pass; arbitrary SolidWorks files are not guaranteed.
 
 Authored regressions exercise a pointed cone with known analytic volume and
 area, perpendicular-cylinder intersections crossing a parameter seam, two
 disjoint cubes retained as separate solids, and failure without partial output
-when one body is unsupported. Standalone app tests convert uploads without a
+when one body is unsupported. A spline-topped box has known volume and
+surface area; toroidal bends validate both 90 and 270 degree native trims.
+A cylindrical helix checks UV metres-to-mm scaling and curve lifting accuracy.
+Malformed knots and unsupported spline variants must leave no STEP output.
+Standalone app tests convert uploads without a
 PO or network-drive search, preserve suffixes, report individual failures and
 hide stale downloads after inputs change.
 
@@ -139,6 +167,22 @@ geometry construction and STEP import without private CAD assets; expected
 volume is 1,000 mm³ and area is 600 mm². Failure tests cover malformed topology,
 unsupported surfaces, incomplete streams, duplicate IDs, stale configurations,
 unmatched history marks, timeouts and cleanup.
+
+## Assemblies
+
+`.sldasm` is deliberately rejected before part decoding. Complete assembly
+conversion requires external component geometry, each instance's saved
+configuration, suppression rules and placements; that pipeline is not yet
+implemented. Multi-body `.sldprt` files are supported separately and do not
+require assembly placement decoding.
+
+The supplied C16210 assembly was inspected read-only. Its component XML lists
+33 external part-file references and its archive holds six cached body
+partitions. Those caches cannot establish complete assembly coverage. It is
+not converted into a partial STEP. The app reports an explicit skip for a
+copied assembly when no matching STEP export was copied. Existing assembly
+STEP exports can still be selected and packaged. Development and acceptance
+testing of assembly conversion need the assembly and its referenced parts.
 
 ## Inspect unsupported files
 

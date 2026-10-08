@@ -118,8 +118,14 @@ LAYOUTS.update({
 LAYOUTS.update({
     67: fields(GEOMETRIC+'section:p sweep:v scale:f'),
     124: fields(GEOMETRIC+'nurbs:p data:p'),
-    126: fields('u_periodic:l v_periodic:l u_degree:n v_degree:n n_u_vertices:d n_v_vertices:d u_knot_type:u v_knot_type:u rational:l u_closed:l v_closed:l surface_form:u vertex_dim:n bspline_vertices:p u_knot_mult:p v_knot_mult:p u_knots:p v_knots:p'),
+    125: fields('original_uint:i original_vint:i extended_uint:i extended_vint:i self_int:u '
+                'original_u_start:c original_u_end:c original_v_start:c original_v_end:c '
+                'extended_u_start:c extended_u_end:c extended_v_start:c extended_v_end:c '
+                'analytic_form_type:c swept_form_type:c spun_form_type:c blend_form_type:c '
+                'analytic_form:p swept_form:p spun_form:p blend_form:p'),
+    126: fields('u_periodic:l v_periodic:l u_degree:n v_degree:n n_u_vertices:d n_v_vertices:d u_knot_type:u v_knot_type:u n_u_knots:d n_v_knots:d rational:l u_closed:l v_closed:l surface_form:u vertex_dim:n bspline_vertices:p u_knot_mult:p v_knot_mult:p u_knots:p v_knots:p'),
     134: fields(GEOMETRIC+'nurbs:p data:p'),
+    133: fields(GEOMETRIC+'basis_curve:p point_1:v point_2:v parm_1:f parm_2:f'),
     136: fields('degree:n n_vertices:d vertex_dim:n n_knots:d knot_type:u periodic:l closed:l rational:l curve_form:u bspline_vertices:p knot_mult:p knots:p'),
     45: fields('vertices:f'), 127: fields('mult:n'), 128: fields('knots:f'),
     135: fields('self_int:u analytic_form:p'),
