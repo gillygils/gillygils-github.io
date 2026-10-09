@@ -13,6 +13,11 @@ from .exports import write_pdf, write_dxf, NOTICE
 def export_drawing(source, output, part=None, dwg=False, dwg_tools=None, font=None, bold_font=None):
     started = time.monotonic()
     source, output = Path(source), Path(output)
+    if source.suffix.lower() == '.dwg':
+        if part or dwg:
+            raise ValueError('DWG input creates PDF and DXF without an optional part or DWG re-export.')
+        from .dwg_input import export_dwg
+        return export_dwg(source,output,dwg_tools)
     if source.suffix.lower() != '.slddrw':
         raise ValueError('Supply a .slddrw drawing.')
     if part:

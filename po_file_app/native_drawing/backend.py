@@ -47,7 +47,8 @@ def convert_drawing_native(source, output, part=None, dwg=False):
         files = ['drawing-report.json']
         try:
             report = json.loads(result.stdout.strip().splitlines()[-1])
-            if (report['implementation'] != 'independent-native-drawing'
+            expected = 'local-libredwg-input' if source.suffix.lower() == '.dwg' else 'independent-native-drawing'
+            if (report['implementation'] != expected
                     or report['production_supported'] is not False
                     or not all(report['exports'][kind].get('file') for kind in ('pdf', 'dxf'))):
                 raise ValueError('Unexpected drawing export result.')

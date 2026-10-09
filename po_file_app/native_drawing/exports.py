@@ -143,6 +143,10 @@ def write_pdf(scene,geometry,output,font_path=None,bold_font=None):
     name,substituted = font_choice(font_path)
     bold_name,bold_substituted = font_choice(bold_font,True)
     warnings=[]
+    uses_txt=any(p['kind']=='text' and p['font']['family'].casefold()=='txt' for p in scene['primitives'])
+    if uses_txt:
+        warnings.append('TXT stroke font is unavailable in native PDF export; Courier is substituted. TXT baseline and font metrics are unverified.')
+        warnings.append('Older TXT drawing view styles are unverified; solid/dashed edge visibility can differ from the saved preview.')
     if substituted:warnings.append('Century Gothic is unavailable; PDF text uses Helvetica.')
     uses_bold=any(p['kind']=='text' and p['font']['flags'] & 8 for p in scene['primitives'])
     if uses_bold and bold_substituted:warnings.append('Century Gothic Bold is unavailable; bold PDF text uses Helvetica Bold.')
@@ -162,12 +166,13 @@ def write_pdf(scene,geometry,output,font_path=None,bold_font=None):
             continue
         if kind=='text':
             font=item['font']
-            if font['family'].casefold()!='century gothic':
+            if font['family'].casefold() not in ('century gothic','txt'):
                 raise ValueError('Unsupported drawing font family: '+font['family'])
             for char,x,y in text_positions(item):
                 c.saveState();c.translate(x*METRES_TO_POINTS,y*METRES_TO_POINTS)
                 c.rotate(math.degrees(item['angle']));c.scale(font['width'],1)
-                c.setFont(bold_name if font['flags'] & 8 else name,font['em_points']);c.drawString(0,0,char)
+                chosen='Courier' if font['family'].casefold()=='txt' else (bold_name if font['flags'] & 8 else name)
+                c.setFont(chosen,font['em_points']);c.drawString(0,0,char)
                 c.restoreState()
             if item['text'] and font['flags'] & 2:
                 length=sum(item['advances'])*METRES_TO_POINTS
@@ -214,6 +219,7 @@ def write_dxf(scene,geometry,output):
                                       'pattern':[63.5,31.75,-6.35,6.35,-6.35,6.35,-6.35]})
     d.styles.new('DrawingFont',dxfattribs={'font':'gothic.ttf'})
     d.styles.new('DrawingFontBold',dxfattribs={'font':'gothicb.ttf'})
+    d.styles.new('DrawingTxt',dxfattribs={'font':'txt.shx'})
     d.layers.new('EXPERIMENTAL_NOTICE',dxfattribs={'color':1})
     m=d.modelspace()
     def xy(point):return tuple(v*1000 for v in point[:2])
@@ -266,7 +272,7 @@ def write_dxf(scene,geometry,output):
                 m.add_text(char,dxfattribs={'insert':(x*1000,y*1000,0),
                     'height':font['em_points']/METRES_TO_POINTS*1000*.718,
                     'rotation':math.degrees(item['angle']),'width':font['width'],
-                    'style':'DrawingFontBold' if font['flags'] & 8 else 'DrawingFont'})
+                    'style':'DrawingTxt' if font['family'].casefold()=='txt' else ('DrawingFontBold' if font['flags'] & 8 else 'DrawingFont')})
             if item['text'] and font['flags'] & 2:
                 _,x,y=next(text_positions(item))
                 angle=item['angle']

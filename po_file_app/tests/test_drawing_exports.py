@@ -103,16 +103,52 @@ class DrawingCommandsTests(unittest.TestCase):
         with patch('native_part.model.load_model',return_value=({'records':records},{})):
             with self.assertRaisesRegex(ValueError,'array sizes'):part_splines('Authored.SLDPRT')
 
-    def test_line_pair_arrays_preserve_each_segment_and_reject_bad_layouts(self):
+    def test_polyline_arrays_preserve_connected_segments_and_reject_bad_layouts(self):
         data = struct.pack('<III12dI',144,5,4,0,0,0,.01,0,0,.01,0,0,.01,.02,0,0)
         reader = Commands(data+line());reader.read(2)
         self.assertEqual(reader.offset,len(data)+len(line()))
-        self.assertEqual(len(reader.primitives),3)
-        self.assertEqual(reader.primitives[1]['end'],[.01,.02,0])
-        for offset,value in ((0,145),(8,3),(len(data)-4,1)):
+        self.assertEqual(len(reader.primitives),2)
+        self.assertEqual(reader.primitives[0]['kind'],'polyline')
+        self.assertEqual(reader.primitives[0]['points'][-1],[.01,.02,0])
+        odd=struct.pack('<III9dI',120,5,3,0,0,0,.01,0,0,.01,.02,0,0)
+        parsed=Commands(odd+line());parsed.read(2)
+        self.assertEqual(parsed.offset,len(odd+line()))
+        self.assertEqual(len(parsed.primitives[0]['points']),3)
+        for offset,value in ((0,145),(8,1),(len(data)-4,1)):
             broken=bytearray(data);struct.pack_into('<I',broken,offset,value)
-            with self.assertRaisesRegex(ValueError,'line-pair'):
+            with self.assertRaisesRegex(ValueError,'polyline'):
                 Commands(bytes(broken)).read(1)
+
+    def test_compact_component_reference_without_points_preserves_following_command(self):
+        for node in (3,6,7,8):
+            group=(struct.pack('<II8I',90,29,199,node,2,0,1,123,0,1)
+                   +string('')+struct.pack('<2I',4,1)
+                   +b''.join(string(v) for v in ('Test@View','','',''))
+                   +struct.pack('<6I',5,0,0,0,0,0)
+                   +b''.join(string(v) for v in ('','','','<objID=1>')))
+            reader=Commands(group+line());reader.read(2)
+            self.assertEqual(reader.offset,len(group+line()))
+            self.assertEqual(reader.primitives[0]['kind'],'line')
+        broken=bytearray(group);struct.pack_into('<I',broken,32,3)
+        with self.assertRaisesRegex(ValueError,'point count'):Commands(bytes(broken)).read(1)
+        broken=bytearray(group);struct.pack_into('<I',broken,24,3)
+        with self.assertRaisesRegex(ValueError,'reference count'):Commands(bytes(broken)).read(1)
+
+    def test_full_circle_flag_requires_identical_endpoints(self):
+        data=struct.pack('<II12dI',128,2,.01,0,0,.01,0,0,0,0,0,0,0,1,1)
+        reader=Commands(data+line());reader.read(2)
+        self.assertEqual(reader.offset,len(data+line()))
+        self.assertEqual(reader.primitives[0]['start'],reader.primitives[0]['end'])
+        broken=bytearray(data);struct.pack_into('<d',broken,32,.02)
+        with self.assertRaisesRegex(ValueError,'arc flags'):Commands(bytes(broken)).read(1)
+
+    def test_font_record_size_tracks_unicode_family_without_skipping_unknown_sizes(self):
+        data=struct.pack('<II2dIdI',104,10,.002,0,0,1,128)+string('TXT')+struct.pack('<2d',1,0)
+        reader=Commands(data+line());reader.read(2)
+        self.assertEqual(reader.font['family'],'TXT')
+        self.assertEqual(reader.offset,len(data+line()))
+        broken=bytearray(data);struct.pack_into('<I',broken,0,106)
+        with self.assertRaisesRegex(ValueError,'font record size'):Commands(bytes(broken)).read(1)
 
     def test_single_glyph_text_without_advances_keeps_the_next_command_aligned(self):
         font = (struct.pack('<II2dIdI',126,10,.002,0,0,1,0)
@@ -200,6 +236,38 @@ class DrawingCommandsTests(unittest.TestCase):
         broken=data.replace(curve_group(801)+curve_group(801),curve_group(801)+curve_group(817),1)
         with self.assertRaisesRegex(ValueError,'hidden group ordering'):
             view_geometry(broken,definition,[.4318,.2794],[matrix()])
+
+    def test_interleaved_empty_views_use_only_populated_display_transforms(self):
+        first=bucket_header()+struct.pack('<I',0)+curve_group()+bucket_label('A@Drawing View1')
+        second=bucket_header()+struct.pack('<I',0)+curve_group()+bucket_label('B@Drawing View2')
+        pose=matrix();pose[9]=.09
+        definition=(b'moAbsoluteView'+string('Drawing View1')+saved_matrix()
+                    +b'moUnfoldedView'+string('Drawing View2')+saved_matrix(pose))
+        data=struct.pack('<I',3)+first+bytes(2)+second
+        views=view_geometry(data,definition,[.4318,.2794],[matrix(),[0]*13,pose],[True,False,True])
+        self.assertEqual([v['transform'][9] for v in views],[.05,.09])
+        with self.assertRaisesRegex(ValueError,'mapping'):
+            view_geometry(data,definition,[.4318,.2794],[matrix(),pose,pose],[True,True,True])
+
+    def test_two_reference_curves_and_two_label_entries_keep_the_primary_view(self):
+        group=bytearray(curve_group(817));struct.pack_into('<I',group,8,2)
+        data=(struct.pack('<I',1)+bucket_header()+bytes(group)
+              +struct.pack('<HI',2,1)+string('Test@Drawing View1')
+              +struct.pack('<I',2)+string('Test@Drawing View1'))
+        definition=b'moAbsoluteView'+string('Drawing View1')+saved_matrix()
+        view=view_geometry(data,definition,[.4318,.2794],[matrix()])[0]
+        self.assertEqual(len(view['curves']),1)
+        self.assertEqual(view['curves'][0]['style'],'HIDDEN')
+
+    def test_short_camera_header_accepts_mode_three_but_rejects_invalid_basis(self):
+        header=bucket_header(3)[:-4]
+        data=struct.pack('<I',1)+header+curve_group(817)+bucket_label('Test@Drawing View1')
+        definition=b'moAbsoluteView'+string('Drawing View1')+saved_matrix()
+        view=view_geometry(data,definition,[.4318,.2794],[matrix()])[0]
+        self.assertEqual(view['curves'][0]['style'],'HIDDEN')
+        broken=bytearray(data);struct.pack_into('<d',broken,40,2)
+        with self.assertRaisesRegex(ValueError,'camera basis'):
+            view_geometry(bytes(broken),definition,[.4318,.2794],[matrix()])
 
     def test_verified_section_selection_copies_are_excluded_and_changed_copies_fail(self):
         first=(bucket_header()+struct.pack('<I',0)+curve_group(801)+bucket_label('A@Drawing View1'))
@@ -559,7 +627,7 @@ class DrawingOutputTests(unittest.TestCase):
             source = Path(temp)/'Test.slddrw'; sample_drawing(source)
             current = [upload(source.name, source.read_bytes())]
             def uploader(label, *args, **kwargs):
-                if label == 'SolidWorks drawing (.slddrw)':
+                if kwargs.get('key') == 'native_drawing_upload':
                     return current[0]
                 return [] if kwargs.get('accept_multiple_files') else None
             with patch('streamlit.file_uploader', side_effect=uploader), patch('core.find_files', side_effect=AssertionError('Searched network drive')):

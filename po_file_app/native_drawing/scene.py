@@ -87,21 +87,21 @@ def view_geometry(data, definition, size, rotations, present=None):
     # later 3D tessellation buffers, which are not drawing primitives.
     present = [True]*len(rotations) if present is None else present
     empty = next((i for i,value in enumerate(present) if value),len(present))
-    if any(not value for value in present[empty:]):
-        raise ValueError('Interleaved empty saved views are unsupported.')
+    populated = [i for i,value in enumerate(present) if value]
     if (len(data)<4 or struct.unpack_from('<I',data)[0] != len(rotations)
             or data[4:4+2*empty] != bytes(2*empty)):
         raise ValueError('Cached empty view pointers do not match the display views.')
-    # Primary bucket labels have a one-component declaration. Later shaded
+    # Primary bucket labels have one or two reference entries. Later shaded
     # assembly buffers can repeat the same strings and are not drawing edges.
     labels = [(p,e,s) for p,e,s in strings(data)
-              if '@' in s and p >= 6 and data[p-6:p] == struct.pack('<HI',1,1)]
-    if not 1 <= len(labels) <= 32 or len(labels) != len(rotations)-empty:
+              if '@' in s and p >= 6 and data[p-6:p] in
+              (struct.pack('<HI',1,1),struct.pack('<HI',2,1))]
+    if not 1 <= len(labels) <= 32 or len(labels) != len(populated):
         raise ValueError('Unsupported cached drawing view mapping.')
     result, begin = [], 0
     for label, end, full_name in labels:
         curves = []
-        pattern = re.compile(re.escape(struct.pack('<I', 1)) + rb'(?:\x31\x03|\x21\x03|\x01\x03)\x00\x00')
+        pattern = re.compile(rb'[\x01\x02]\x00\x00\x00(?:\x31\x03|\x21\x03|\x01\x03)\x00\x00')
         for match in pattern.finditer(data, begin, label):
             p = match.start()+4
             kind, count = struct.unpack_from('<II', data, p)
@@ -135,7 +135,7 @@ def view_geometry(data, definition, size, rotations, present=None):
         normal = list(struct.unpack_from('<3d',data,normal_start))
         if abs(sum(v*v for v in normal)-1)>1e-9:
             normal_start = hidden_header-48
-            if (normal_start<begin or struct.unpack_from('<I',data,normal_start+24)[0] != 1
+            if (normal_start<begin or struct.unpack_from('<I',data,normal_start+24)[0] not in (0,1,2,3)
                     or struct.unpack_from('<2I',data,normal_start+40) != (25,0)):
                 raise ValueError('Unsupported view camera basis.')
             normal = list(struct.unpack_from('<3d',data,normal_start))
@@ -175,7 +175,7 @@ def view_geometry(data, definition, size, rotations, present=None):
             groups.append({'hidden':style=='HIDDEN','count':count,'offset':header,'slot':slot})
             index += count
         name = full_name.split('@',1)[1]
-        matrix = saved_transform(definition, name, size, rotations[empty+len(result)],
+        matrix = saved_transform(definition, name, size, rotations[populated[len(result)]],
                                  [value.split('@',1)[1] for _,_,value in labels])
         detail = False
         for match in re.finditer(rb'moDetailView(?![A-Za-z0-9_])',definition):
@@ -194,7 +194,7 @@ def view_geometry(data, definition, size, rotations, present=None):
         result.append({'name':name,'component':full_name,'transform':matrix,'curves':curves,'groups':groups,
                        'coordinate_space':'view_plane' if planar else 'model'})
         begin = end
-    if struct.unpack_from('<I',data)[0] != len(result)+empty:
+    if struct.unpack_from('<I',data)[0] != len(result)+present.count(False):
         raise ValueError('Cached view count differs from decoded views.')
     return result
 

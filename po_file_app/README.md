@@ -50,6 +50,17 @@ C15977, C15966, C15961 and C15962 also export successfully. C15959 now exports i
 
 Drawing PDFs now have an optional Windows automation path. Enable **Automatically print drawings to PDF (experimental)** after updating the app. It uses the installed eDrawings ActiveX control and Microsoft Print to PDF, prints all sheets to a chosen paper size (default Tabloid landscape, fit to page), checks PDF page count and content, and adds successful PDFs to the ZIP. It opens the original drawing read-only so model references retain their source location. Run while signed into Windows; a viewer window may appear. The checkbox is off by default until a first Windows acceptance test. See [drawing_converter/README.md](drawing_converter/README.md). If automation fails, open the drawings in eDrawings and print manually. The post-processing export uploader still accepts these PDFs and manually converted STEP files; click **Add exports and update ZIP**. Uploaded exports are checked for exact PO part association and recognizable headers, which do not themselves validate geometry or drawing accuracy. Check drawings for missing views and clipped content. Referenced dependencies are not automatically bundled. Existing files are never overwritten.
 
+The drawing uploader also accepts DWG for local vector PDF and DXF exports after
+installing the DWG tools. Its model space is fitted to A3 landscape; the original
+plot scale and paper-space layouts are not preserved. Decoder warnings stay
+visible. C07403–C07407 produced vector PDFs with clean DXF audits, but LibreDWG
+reported warnings for each. C16001, C16002, C16016, C16018, C16043 and C10679
+now also export native drawing drafts. C10679 substitutes Courier for its TXT
+font with a warning; some solid/dashed edges differ from its saved preview.
+C10675, C10676, C10677, C10678, C10680 and C10681 still fail
+on unsupported saved geometry. The supplied Windows file-opener ZIP does not
+include its website's JavaScript converter, which is needed for integration.
+
 ## Validation and limits
 
 Parsing was validated against all 12 lines in the supplied two-page PO 1530 and all three lines in PO 1926 (C16913, C16915 and C16917, quantity 1 each). Automated tests cover varying process descriptions, C/M prefixes, quantities versus dates/prices, exact suffix matching, duplicate discovery, copying without overwrites, output path validation, and the browser packaging workflow. New independent-converter tests decode and export an authored cube through both the worker and app backend, check known dimensions/volume/area, block Python network access and vendor cache reads, and exercise malformed topology, stale configuration, timeout and failure cleanup.

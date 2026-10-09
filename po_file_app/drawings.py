@@ -26,7 +26,12 @@ def convert_upload(drawing, part=None, dwg=False, converter=None):
     if converter is None:
         from native_drawing.backend import convert_drawing_native
         converter = convert_drawing_native
-    drawing_name, drawing_data = prepare_upload(drawing, '.slddrw')
+    suffix = Path(getattr(drawing,'name','')).suffix.lower()
+    if suffix not in ('.slddrw','.dwg'):
+        raise ValueError('Choose a .slddrw or .dwg drawing.')
+    drawing_name, drawing_data = prepare_upload(drawing, suffix)
+    if suffix == '.dwg' and (part or dwg):
+        raise ValueError('DWG input creates PDF and DXF without a matching part or DWG re-export.')
     part_input = prepare_upload(part, '.sldprt') if part else None
     if part_input and Path(part_input[0]).stem.casefold() != Path(drawing_name).stem.casefold():
         raise ValueError('Choose the matching part with the same filename stem as the drawing.')
@@ -60,16 +65,20 @@ def render_drawings():
     import streamlit as st
     from native_drawing.backend import drawing_diagnostics
     st.subheader('Drawing exports — experimental')
-    st.write('Upload a SolidWorks drawing to create a local vector PDF and DXF. Optional DWG export uses the free LibreDWG tools. No purchase order or eDrawings is needed.')
+    st.write('Upload a SolidWorks drawing or DWG to create a local vector PDF and DXF. DWG input and optional DWG export use the free LibreDWG tools. No purchase order or eDrawings is needed.')
     st.warning('The native decoder is still incomplete. Compare every export with the original drawing before use. These marked drafts are kept separate from PO packages.')
     st.caption('Currently supports the observed single-sheet drawing layout. Other drawing versions, multiple sheets, tables, section/detail views, fonts, and styles may be unsupported. Unsupported command layouts stop the export.')
-    drawing = st.file_uploader('SolidWorks drawing (.slddrw)', type=['slddrw'], key='native_drawing_upload')
-    part = st.file_uploader('Matching part for exact spline curves (optional)', type=['sldprt'], key='native_drawing_part')
+    drawing = st.file_uploader('SolidWorks drawing or DWG (.slddrw or .dwg)', type=['slddrw','dwg'], key='native_drawing_upload')
+    is_dwg = bool(drawing and Path(getattr(drawing,'name','')).suffix.lower() == '.dwg')
+    part = st.file_uploader('Matching part for exact spline curves (optional)', type=['sldprt'], key='native_drawing_part',disabled=is_dwg)
+    if is_dwg:
+        part=None
+        st.caption('DWG model space is fitted to an A3 landscape PDF. Original plot scale is not preserved. PDF and DXF exports require the local DWG tools.')
     st.caption('Use the same filename stem, such as C15999.SLDDRW and C15999.SLDPRT. Without a matching part, unresolved spline curves become marked draft polylines and are listed in the report.')
     diagnostics = drawing_diagnostics()
-    dwg = st.checkbox('Also create an experimental DWG', disabled=not diagnostics['dwg_ready'], key='native_dwg') and diagnostics['dwg_ready']
+    dwg = st.checkbox('Also create an experimental DWG', disabled=is_dwg or not diagnostics['dwg_ready'], key='native_dwg') and diagnostics['dwg_ready'] and not is_dwg
     if not diagnostics['dwg_ready']:
-        st.caption('To enable DWG on Windows: close the app, run install_dwg_tools.bat once while connected, then restart. PDF and DXF do not need it. Conversions run locally after installation.')
+        st.caption('To enable DWG input or output on Windows: close the app, run install_dwg_tools.bat once while connected, then restart. SolidWorks drawing PDF and DXF exports do not need it. Conversions run locally after installation.')
     if not diagnostics['ready']:
         st.info('Run run_windows.bat once to install the drawing libraries. ' + '; '.join(diagnostics['problems']))
     def identity(upload):
@@ -79,11 +88,11 @@ def render_drawings():
     if completed and completed['signature'] != signature:
         st.session_state.pop('native_drawing_result', None)
         completed = None
-    if st.button('Create experimental drawing exports', disabled=not drawing or not diagnostics['ready'], type='primary'):
+    if st.button('Create experimental drawing exports', disabled=not drawing or not diagnostics['ready'] or (is_dwg and not diagnostics['dwg_ready']), type='primary'):
         st.session_state.pop('native_drawing_result', None)
         completed = None
         try:
-            with st.spinner('Decoding saved drawing views and annotations locally…'):
+            with st.spinner('Reading DWG and rendering vectors locally…' if is_dwg else 'Decoding saved drawing views and annotations locally…'):
                 completed = convert_upload(drawing, part, dwg)
                 completed['signature'] = signature
                 st.session_state.native_drawing_result = completed
@@ -91,7 +100,10 @@ def render_drawings():
             st.error(str(exc))
     if completed:
         report = completed['report']
-        st.info(f"Experimental exports ready: {report['views']} views, {report['geometry']['geometry_primitives']} model curves. Review the drawing before use.")
+        if is_dwg:
+            st.info(f"Experimental vector PDF and DXF ready: {report['geometry']['geometry_primitives']} model-space entities. Review the drawing before use.")
+        else:
+            st.info(f"Experimental exports ready: {report['views']} views, {report['geometry']['geometry_primitives']} model curves. Review the drawing before use.")
         if report['geometry']['unresolved_splines']:
             st.warning(f"{len(report['geometry']['unresolved_splines'])} spline curves are approximated by polylines. Add the matching part if available; see the report for details.")
         if report['geometry'].get('cached_polylines'):
@@ -100,6 +112,8 @@ def render_drawings():
             st.warning('Some curves in the optional part are unsupported. Unresolved drawing curves retain their saved polylines; see the drawing report.')
         for message in report['exports']['pdf'].get('warnings', []):
             st.warning(message)
+        if report.get('decoder_warnings'):
+            st.warning('LibreDWG reported decoding warnings. Review the exported drawing and the details in drawing-report.json.')
         if 'error' in report['exports'].get('dwg', {}):
             st.warning('DWG export failed: '+report['exports']['dwg']['error']+'. PDF and DXF remain available.')
         st.download_button('Download experimental drawing ZIP', completed['zip'],

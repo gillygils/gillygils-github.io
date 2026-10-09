@@ -14,7 +14,7 @@ from PO packages. Compare each export with the original drawing before use.
 
 1. Update the app and run `run_windows.bat` once to install the new `reportlab`
    and `ezdxf` libraries.
-2. Open **Drawing exports**. Upload a `.slddrw` file.
+2. Open **Drawing exports**. Upload a `.slddrw` or `.dwg` file.
 3. Optionally upload its matching `.sldprt`, with the same filename stem. This
    supplies exact native spline definitions when saved drawing points alone
    do not contain the spline control points.
@@ -26,7 +26,8 @@ For DWG on 64-bit Windows, close the app and run `install_dwg_tools.bat` once,
 then restart. The installer downloads the official LibreDWG 0.14 Windows ZIP,
 checks its pinned SHA-256, and installs executables/DLLs into ignored
 `.dwg-tools/`. It includes the GPL license and upstream source link. It does
-not install a service or printer. PDF/DXF do not require these tools.
+not install a service or printer. PDF/DXF from SolidWorks drawings do not
+require these tools; DWG input does.
 Installation needs internet access; subsequent conversion does not. You may
 remain connected to Z: normally. Use `run_windows_offline.bat` after installing
 the updated dependencies.
@@ -63,7 +64,8 @@ remains available in `native_drawing.__main__`; the CLI now exports the scene.
   declared edge/silhouette group counts, hidden edges and additional saved
   display-state commands.
 - Leading empty display views matched to their null cached-bucket pointers,
-  the two observed closing-tail variants, line-pair arrays, single-glyph
+  interleaved empty views mapped through the populated display transforms,
+  the two observed closing-tail variants, connected polyline arrays, single-glyph
   section labels and component annotations. Unknown layouts still fail.
 - The observed detail-view bucket stores projected XY samples. Its typed
   detail feature and planar cache identify those coordinates; its model
@@ -89,6 +91,29 @@ are not bundled or downloaded. DXF/DWG reference `gothic.ttf`/`gothicb.ttf`;
 their viewer must have the fonts. Baseline and
 font sizing are observations from Century Gothic in the supplied drawing,
 not support for arbitrary fonts or text layouts.
+The observed older `TXT` font record is also decoded. Native PDF drafts
+substitute Courier with an explicit warning; DXF/DWG retain a `txt.shx`
+font reference. Its baseline and font metrics have not been validated.
+
+## DWG input
+
+The same upload control accepts `.dwg`. LibreDWG 0.14 decodes it into DXF
+locally. ezdxf resolves model-space entities, dimension/block geometry,
+line patterns and glyph paths; our ReportLab backend writes a vector PDF
+without rasterizing the drawing. The downloaded DXF retains the decoded
+source units and geometry. The PDF fits model space to A3 landscape and
+does **not** preserve the original plot scale or export paper-space layouts.
+Rendering does not fetch external images/underlays; these objects stop export.
+Unknown skipped entities or DXF audit repairs also stop export. LibreDWG
+decoder warnings remain visible in the app and report: a clean DXF audit
+does not prove that the upstream decoder preserved every source object.
+
+The five supplied DWGs C07403–C07407 decode without ezdxf audit errors or
+repairs and produce vector PDFs. They include dimensions, leaders, text,
+block references and curved geometry. LibreDWG reports decoding warnings
+for all five, which are retained. Original plotted PDFs were not supplied
+for comparison. No new package, printer or eDrawings installation is needed
+beyond the existing optional local DWG tools.
 
 ## Validation and known limits
 
@@ -161,6 +186,24 @@ unresolved spline samples and 116 other sampled curves; matching its supplied
 part does not make those exact. Its PHANTOM line style uses the standard
 dash pattern, whose original spacing remains unverified. A successful export
 does not establish full fidelity for arbitrary section/detail drawings.
+
+C16001, C16002, C16016, C16018 and C16043 now export their populated saved
+views as PDF/DXF/DWG drafts. This adds compact component annotations,
+full-circle flags, odd-length connected polyline commands, two-reference
+curve records and interleaved empty display views. PDFs were compared with
+their embedded previews; DWGs passed the geometry/text/style round-trip.
+C10679 also produces a four-view draft using the reported TXT font substitution.
+Visual comparison found differences in its solid/dashed edge visibility;
+the app reports that older TXT view styles are unverified. This file is
+not a fidelity-verified conversion.
+The supplied C10675, C10676, C10677, C10678, C10680 and C10681 remain
+unsupported at cached view/group records and produce no completed downloads.
+
+The supplied Imperial File Opener Windows ZIP contains a C# file opener,
+not the website's drawing converter. It identifies
+`shared/public/js/cad-finder.js` as the browser-side conversion entry point.
+That JavaScript and its imported modules have not been supplied, so no code
+from that converter has been integrated or validated.
 
 The DWG bridge adapts a temporary generated R2000 DXF for LibreDWG 0.14:
 it remaps typed handles for model space and omits optional object dictionaries

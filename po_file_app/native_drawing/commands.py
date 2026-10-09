@@ -29,7 +29,10 @@ class Commands:
         return values[0] if len(values) == 1 else values
 
     def string(self):
-        text, self.offset = read_string(self.data, self.offset)
+        try:
+            text, self.offset = read_string(self.data, self.offset)
+        except ValueError as exc:
+            raise ValueError(f'{exc} At display byte {self.offset}.') from exc
         return text
 
     def points(self, count):
@@ -65,7 +68,8 @@ class Commands:
                 self.add('line', start=a, end=b)
             elif kind in (2, 101) and size == 128:
                 a, b, center, normal = self.points(4)
-                if self.take('I') != 0:
+                flags = self.take('I')
+                if flags != 0 and not (flags == 1 and a == b):
                     raise ValueError('Unsupported arc flags.')
                 self.add('arc', start=a, end=b, center=center, normal=normal)
             elif kind == 6:
@@ -75,13 +79,14 @@ class Commands:
                 self.add('polygon', points=self.points(vertices))
             elif kind == 5:
                 vertices = self.take('I')
-                if vertices < 2 or vertices % 2 or size != 48 + 24 * vertices:
-                    raise ValueError('Unsupported drawing line-pair array.')
+                if vertices < 2 or size != 48 + 24 * vertices:
+                    raise ValueError('Unsupported drawing polyline array.')
                 points = self.points(vertices)
                 if self.take('I') != 0:
-                    raise ValueError('Unsupported drawing line-pair flags.')
-                for a,b in zip(points[::2],points[1::2]):
-                    self.add('line',start=a,end=b)
+                    raise ValueError('Unsupported drawing polyline flags.')
+                # Successive vertices form a strip. Earlier examples repeated
+                # shared endpoints, which made a strip look like line pairs.
+                self.add('polyline',points=points)
             elif kind == 9 and size == 60:
                 self.take('4I'); self.take('H'); self.take('f'); self.take('I'); self.take('Q')
             elif kind == 12 and size in (70, 72, 78):
@@ -89,10 +94,12 @@ class Commands:
                 self.style = self.string()
                 if self.style not in ('CONTINUOUS', 'CENTER', 'PHANTOM'):
                     raise ValueError('Unsupported drawing line style: ' + self.style)
-            elif kind == 10 and size == 126:
+            elif kind == 10 and 98 <= size <= 8290:
                 height, angle = self.take('2d')
                 style, spacing, flags = self.take('I'), self.take('d'), self.take('I')
                 family = self.string()
+                if size != 98 + 2 * len(family):
+                    raise ValueError('Unsupported font record size.')
                 width, slant = self.take('2d')
                 logical = struct.unpack_from('<i', self.data, start + 16)[0]
                 em_points = logical if height == -1 else height * 72 / .0254 * 4 / 3
@@ -135,9 +142,20 @@ class Commands:
                 tag, node, version, _ = self.take('4I')
                 if tag != 199 or version not in (1, 2):
                     raise ValueError('Unsupported annotation group.')
-                component = node in (7,8) and version == 2
+                component = node in (3,6,7,8) and version == 2
                 if component:
-                    self.take('4I'); self.points(2); self.take('I')
+                    references = self.take('I')
+                    if not 1 <= references <= 2:
+                        raise ValueError('Unsupported component annotation reference count.')
+                    for _ in range(references):
+                        self.take('I')
+                    coordinates = self.take('I')
+                    if coordinates not in (0,2):
+                        raise ValueError('Unsupported component annotation point count.')
+                    if coordinates:
+                        self.points(coordinates)
+                    if self.take('I') != 1:
+                        raise ValueError('Unsupported component annotation suffix.')
                     self.string(); self.take('2I')
                 else:
                     self.take('5I')
